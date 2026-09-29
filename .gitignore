@@ -1,0 +1,10 @@
+node_modules/
+backend/dist/
+android/.gradle/
+android/local.properties
+android/**/build/
+.idea/
+*.iml
+.env
+.env.*
+!.env.example

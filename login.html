@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#123d35"><title>Masuk — JAGA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="auth.css">
+</head>
+<body>
+  <main class="auth-shell">
+    <section class="auth-story">
+      <a class="auth-brand" href="login.html"><span class="mark"><i></i><i></i><i></i></span><span><b>JAGA</b><small>Joint Alert, Guidance & Assistance</small></span></a>
+      <div class="story-copy"><span class="kicker">SATU JARING PERLINDUNGAN</span><h1>Peringatan yang dipahami.<br>Bantuan yang sampai.</h1><p>Platform terintegrasi untuk memastikan setiap warga rentan mendapat informasi dan bantuan evakuasi yang tepat.</p></div>
+      <div class="signal-card"><div class="pulse"><span></span></div><div><b>Jaringan JAGA aktif</b><small>312 desa · 17.891 perangkat terhubung</small></div></div>
+      <p class="story-foot">Sistem operasional kebencanaan inklusif Indonesia</p>
+    </section>
+    <section class="auth-form-wrap">
+      <form class="auth-form" id="loginForm">
+        <div class="mobile-logo"><span class="mark"><i></i><i></i><i></i></span><b>JAGA</b></div>
+        <p class="kicker">AKSES TERLINDUNGI</p><h2>Selamat datang kembali</h2><p class="intro">Masuk menggunakan akun organisasi yang telah didaftarkan.</p>
+        <label class="field"><span>Email atau ID pengguna</span><input type="text" placeholder="contoh@jaga.id" required autocomplete="username"></label>
+        <label class="field"><span>Kata sandi</span><div class="password"><input id="password" type="password" placeholder="Masukkan kata sandi" required autocomplete="current-password"><button type="button" class="show-pass" data-target="password">Lihat</button></div></label>
+        <div class="form-row"><label class="remember"><input type="checkbox"> Ingat perangkat ini</label><button type="button" class="text-btn">Lupa kata sandi?</button></div>
+        <button class="submit" type="submit">Masuk ke JAGA <span>→</span></button>
+        <div class="divider"><span>AKSES DEMO BERDASARKAN ROLE</span></div>
+        <div class="role-options">
+          <button type="button" data-demo="pusat"><i>P</i><span><b>JAGA Pusat</b><small>Admin nasional</small></span></button>
+          <button type="button" data-demo="desa" class="selected"><i>D</i><span><b>JAGA Desa</b><small>Tim operasional</small></span></button>
+          <button type="button" data-demo="rescue"><i>R</i><span><b>JAGA Rescue</b><small>Tim lapangan</small></span></button>
+        </div>
+        <p class="help">Belum memiliki akses? Akun dibuat oleh Admin JAGA Pusat. <a href="buat-akun.html">Simulasikan pembuatan akun</a></p>
+      </form>
+    </section>
+  </main>
+  <script src="auth.js"></script>
+</body></html>

@@ -1,0 +1,234 @@
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { readFile, stat } from "node:fs/promises";
+import { extname, join, normalize, resolve, sep } from "node:path";
+import { buildRouter } from "./api/index.js";
+import { authenticateDevice, authenticateGateway, resolveSession, usingEphemeralSessionSecret } from "./auth.js";
+import { config, projectRoot, supabaseEnabled } from "./config.js";
+import { HttpError, json, readBody } from "./lib.js";
+import { addSubscriber, publish } from "./realtime.js";
+import { createStore } from "./store-boot.js";
+import type { Store } from "./store.js";
+import type { Row, Session } from "./types.js";
+
+/* ------------------------------------------------------ Aset web statis */
+
+const CONTENT_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".txt": "text/plain; charset=utf-8"
+};
+
+/**
+ * Allowlist aset. Hanya nama berkas di bawah yang boleh dilayani.
+ * .env, package.json, node_modules, backend, supabase, dan android tidak pernah
+ * diakses karena tidak ada di daftar ini.
+ */
+const STATIC_FILES: Record<string, string> = {
+  "/": "index.html",
+  "/index.html": "index.html",
+  "/login": "login.html",
+  "/login.html": "login.html",
+  "/buat-akun": "buat-akun.html",
+  "/buat-akun.html": "buat-akun.html",
+  "/app.js": "app.js",
+  "/auth.js": "auth.js",
+  "/api-client.js": "api-client.js",
+  "/styles.css": "styles.css",
+  "/auth.css": "auth.css",
+  "/manifest.webmanifest": "manifest.webmanifest",
+  "/service-worker.js": "service-worker.js"
+};
+
+const STATIC_DIRS: Record<string, string> = {
+  "/assets/": "assets",
+  "/vendor/": "vendor"
+};
+
+const ALLOWED_EXTENSIONS = new Set(Object.keys(CONTENT_TYPES));
+
+const resolveStatic = async (pathname: string): Promise<{ file: string; type: string } | null> => {
+  const direct = STATIC_FILES[pathname];
+  if (direct) {
+    const file = resolve(projectRoot, direct);
+    if (!file.startsWith(projectRoot + sep)) return null;
+    return { file, type: CONTENT_TYPES[extname(file)] ?? "application/octet-stream" };
+  }
+  for (const [prefix, dir] of Object.entries(STATIC_DIRS)) {
+    if (!pathname.startsWith(prefix)) continue;
+    const relative = normalize(pathname.slice(prefix.length)).replace(/^([/\\])+/, "");
+    if (!relative || relative.includes("..")) return null;
+    if (!ALLOWED_EXTENSIONS.has(extname(relative))) return null;
+    const file = resolve(projectRoot, dir, relative);
+    if (!file.startsWith(join(projectRoot, dir) + sep)) return null;
+    return { file, type: CONTENT_TYPES[extname(relative)] ?? "application/octet-stream" };
+  }
+  return null;
+};
+
+const serveStatic = async (res: ServerResponse, pathname: string): Promise<boolean> => {
+  const target = await resolveStatic(pathname);
+  if (!target) return false;
+  try {
+    const info = await stat(target.file);
+    if (!info.isFile()) return false;
+    const body = await readFile(target.file);
+    const immutable = pathname.startsWith("/vendor/") || pathname.startsWith("/assets/");
+    res.writeHead(200, {
+      "content-type": target.type,
+      "content-length": body.length,
+      "cache-control": immutable ? "public, max-age=300" : "no-cache",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "no-referrer",
+      "content-security-policy": CSP
+    });
+    res.end(body);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' https://unpkg.com",
+  "style-src 'self' 'unsafe-inline' https://unpkg.com",
+  "img-src 'self' data: https://*.tile.openstreetmap.org https://tile.openstreetmap.org",
+  "connect-src 'self'",
+  "font-src 'self' data:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'"
+].join("; ");
+
+/* ------------------------------------------------------------ Server */
+
+const store: Store = await createStore();
+const router = buildRouter();
+
+const DEVICE_ROUTES = ["/api/device/telemetry", "/api/device/location", "/api/device/inbox", "/api/device/receipts/"];
+
+const securityHeaders = (res: ServerResponse) => {
+  res.setHeader("x-content-type-options", "nosniff");
+  res.setHeader("x-frame-options", "DENY");
+  res.setHeader("referrer-policy", "no-referrer");
+  res.setHeader("permissions-policy", "geolocation=(self), microphone=()");
+  res.setHeader("cross-origin-opener-policy", "same-origin");
+};
+
+const sendError = (res: ServerResponse, error: unknown) => {
+  if (res.headersSent) { res.end(); return; }
+  if (error instanceof HttpError) {
+    json(res, error.status, { error: error.message, detail: error.detail ?? undefined });
+    return;
+  }
+  console.error("[jaga] kesalahan tidak tertangani:", error);
+  json(res, 500, { error: "Terjadi kesalahan pada server" });
+};
+
+const handleStream = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
+  const session = await resolveSession(store, req);
+  if (!session) throw new HttpError(401, "Sesi tidak valid atau sudah berakhir");
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-store",
+    connection: "keep-alive",
+    "x-accel-buffering": "no",
+    "x-content-type-options": "nosniff"
+  });
+  res.write(`retry: 5000\n\n`);
+  res.write(`event: connected\ndata: ${JSON.stringify({ at: new Date().toISOString(), role: session.role })}\n\n`);
+  const unsubscribe = addSubscriber(res, session);
+  req.on("close", unsubscribe);
+  req.on("error", unsubscribe);
+};
+
+const handleDeviceRequest = async (req: IncomingMessage, url: URL) => {
+  const method = (req.method ?? "GET").toUpperCase();
+  const body = method === "GET" ? {} : await readBody(req, 64 * 1024);
+  const gateway = await authenticateGateway(store, req, url);
+  const deviceAuth = await authenticateDevice(store, req, url);
+  return { body, gateway, deviceAuth, device: deviceAuth.device };
+};
+
+const server = createServer(async (req, res) => {
+  securityHeaders(res);
+  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+  const method = (req.method ?? "GET").toUpperCase();
+
+  try {
+    if (url.pathname === "/api/stream" && method === "GET") {
+      await handleStream(req, res, url);
+      return;
+    }
+
+    if (DEVICE_ROUTES.some(route => url.pathname === route || url.pathname.startsWith(route))) {
+      const extra = await handleDeviceRequest(req, url);
+      const session = (await resolveSession(store, req)) ?? deviceSession(extra.device);
+      await router.handle(req, res, store, () => Promise.resolve(session), { extra });
+      return;
+    }
+
+    if (url.pathname.startsWith("/api/")) {
+      await router.handle(req, res, store, req0 => resolveSession(store, req0));
+      return;
+    }
+
+    if (method === "GET" || method === "HEAD") {
+      if (await serveStatic(res, url.pathname)) return;
+    }
+    res.writeHead(404, { "content-type": "text/html; charset=utf-8" });
+    res.end("<!doctype html><meta charset=\"utf-8\"><title>404</title><p>Halaman tidak ditemukan.</p>");
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+/** Perangkat tidak punya sesi, tetapi tetap mendapat sesi terbatas agar kontrak Ctx terpenuhi. */
+const deviceSession = (device: Row): Session => ({
+  userId: `device:${device.id}`,
+  profileId: `device:${device.id}`,
+  displayName: `Perangkat ${device.id}`,
+  email: "",
+  role: "RESCUE",
+  organizationId: null,
+  organizationName: null,
+  villageIds: device.village_id ? [String(device.village_id)] : null,
+  villageNames: [],
+  authSource: "internal",
+  expiresAt: Date.now() + 60_000
+});
+
+server.listen(config.port, () => {
+  console.log(`[jaga] server berjalan di http://localhost:${config.port}`);
+  console.log(`[jaga] penyimpanan: ${supabaseEnabled ? "Supabase" : "memori (data demo)"}`);
+  if (usingEphemeralSessionSecret) {
+    console.warn("[jaga] SESSION_SECRET belum disetel, sesi akan berakhir setiap restart.");
+  }
+  if (config.devRoleHeader) {
+    console.warn("[jaga] JAGA_DEV_ROLE_HEADER aktif. Jangan pakai di lingkungan produksi.");
+  }
+  publish("connected", { storage: supabaseEnabled ? "supabase" : "memory" });
+});
+
+const shutdown = (signal: string) => {
+  console.log(`[jaga] menerima ${signal}, menutup server`);
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 5000).unref();
+};
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+export { server, store };

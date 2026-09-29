@@ -1,0 +1,18 @@
+{
+  "name": "jaga-platform",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Platform peringatan dan respons inklusif JAGA",
+  "scripts": {
+    "build": "tsc -p backend/tsconfig.json",
+    "start": "node --env-file-if-exists=.env backend/dist/server.js",
+    "dev": "npm run build && node --env-file=.env backend/dist/server.js",
+    "check": "tsc -p backend/tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
