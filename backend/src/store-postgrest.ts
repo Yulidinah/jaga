@@ -1,7 +1,7 @@
 import { config, supabaseEnabled } from "./config.js";
 import { HttpError, nowIso } from "./lib.js";
 import type { Row } from "./types.js";
-import type { Query, Store } from "./store.js";
+import { HAS_CREATED_AT, HAS_UPDATED_AT, type Query, type Store } from "./store.js";
 
 const encodeValue = (value: unknown): string => {
   if (value === null || value === undefined) return "null";
@@ -16,10 +16,14 @@ const postgrestValue = (value: unknown): string => {
   return /[(),\s"'\\:]/.test(text) ? `"${text.replace(/"/g, '\\"')}"` : text;
 };
 
+/** Nilai filter di-encode agar karakter seperti & # + % tidak menyisipkan parameter baru. */
+const enc = (value: string): string =>
+  encodeURIComponent(value).replace(/%28/g, "(").replace(/%29/g, ")").replace(/%2C/g, ",").replace(/%22/g, '"');
+
 /** Menerjemahkan Query menjadi string PostgREST. */
 export function toQueryString(query: Query = {}): string {
   const parts: string[] = ["select=*"];
-  const push = (key: string, raw: string) => parts.push(`${key}=${raw}`);
+  const push = (key: string, raw: string) => parts.push(`${key}=${enc(raw)}`);
 
   for (const [column, value] of Object.entries(query.eq ?? {})) {
     if (value === null) parts.push(`${column}=is.null`);
@@ -29,7 +33,7 @@ export function toQueryString(query: Query = {}): string {
     push(column, `neq.${postgrestValue(value)}`);
   }
   for (const [column, values] of Object.entries(query.in ?? {})) {
-    if (!values.length) continue;
+    // Daftar kosong berarti tidak ada baris yang cocok (sama seperti penyimpanan memori).
     push(column, `in.(${values.map(postgrestValue).join(",")})`);
   }
   for (const [column, value] of Object.entries(query.gt ?? {})) push(column, `gt.${postgrestValue(value)}`);
@@ -42,7 +46,7 @@ export function toQueryString(query: Query = {}): string {
   for (const [column, value] of Object.entries(query.like ?? {})) push(column, `ilike.${postgrestValue(value)}`);
   const alternatives = (query.anyOf ?? []).filter(item => item.values.length);
   if (alternatives.length) {
-    parts.push(`or=(${alternatives.map(item => `${item.column}.in.(${item.values.map(postgrestValue).join(",")})`).join(",")})`);
+    parts.push(`or=${enc(`(${alternatives.map(item => `${item.column}.in.(${item.values.map(postgrestValue).join(",")})`).join(",")})`)}`);
   }
 
   const order = Object.entries(query.order ?? {});
@@ -85,6 +89,15 @@ export class PostgrestStore implements Store {
     }
   }
 
+  /** created_at hanya ditambahkan untuk tabel yang memang punya kolomnya. */
+  private stamp(table: string, row: Row): Row {
+    if (!HAS_CREATED_AT.has(table)) {
+      const { created_at: _ignored, ...rest } = row;
+      return rest;
+    }
+    return { ...row, created_at: row.created_at ?? nowIso() };
+  }
+
   async list(table: string, query: Query = {}): Promise<Row[]> {
     if (!query.pred) return this.request(`${table}?${toQueryString(query)}`);
     // Predikat JS tidak bisa didorong ke PostgREST, jadi tabel dibaca penuh
@@ -105,7 +118,7 @@ export class PostgrestStore implements Store {
   async count(table: string, query: Query = {}): Promise<number> {
     if (query.pred) return (await this.list(table, query)).length;
     const params = new URLSearchParams(toQueryString(query));
-    params.set("select", "id");
+    params.set("select", "*");
     params.set("limit", "1");
     const response = await fetch(`${this.base}/${table}?${params.toString()}`, {
       headers: { ...this.headers, Prefer: "count=exact", Range: "0-0" }
@@ -117,7 +130,7 @@ export class PostgrestStore implements Store {
   }
 
   async insert(table: string, row: Row): Promise<Row> {
-    const payload = { ...row, created_at: row.created_at ?? nowIso() };
+    const payload = this.stamp(table, row);
     const rows = await this.request(table, {
       method: "POST",
       headers: { Prefer: "return=representation" },
@@ -129,7 +142,7 @@ export class PostgrestStore implements Store {
 
   async insertMany(table: string, rowsToInsert: Row[]): Promise<Row[]> {
     if (!rowsToInsert.length) return [];
-    const payload = rowsToInsert.map(row => ({ created_at: row.created_at ?? nowIso(), ...row }));
+    const payload = rowsToInsert.map(row => this.stamp(table, row));
     return this.request(table, {
       method: "POST",
       headers: { Prefer: "return=representation" },
@@ -140,7 +153,7 @@ export class PostgrestStore implements Store {
   async upsert(table: string, rowsToUpsert: Row[], onConflict: string[]): Promise<Row[]> {
     if (!rowsToUpsert.length) return [];
     const query = `on_conflict=${onConflict.join(",")}`;
-    const payload = rowsToUpsert.map(row => ({ created_at: row.created_at ?? nowIso(), ...row }));
+    const payload = rowsToUpsert.map(row => this.stamp(table, row));
     return this.request(`${table}?${query}`, {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=representation" },
@@ -155,7 +168,11 @@ export class PostgrestStore implements Store {
 
   async updateWhere(table: string, query: Query, patch: Row): Promise<Row[]> {
     const body = { ...patch };
-    if (!("updated_at" in body) && !("recorded_at" in body)) body.updated_at = nowIso();
+    if (HAS_UPDATED_AT.has(table)) {
+      if (!("updated_at" in body)) body.updated_at = nowIso();
+    } else {
+      delete body.updated_at;
+    }
     const rows = await this.list(table, { ...query, limit: 1 });
     if (!rows.length) return [];
     return this.request(`${table}?${toQueryString({ ...query, limit: undefined, offset: undefined, order: undefined })}`, {
@@ -166,6 +183,7 @@ export class PostgrestStore implements Store {
   }
 
   async remove(table: string, id: unknown): Promise<void> {
+    if (id && typeof id === "object") return this.removeWhere(table, { eq: id as Record<string, unknown> });
     await this.request(`${table}?id=eq.${encodeURIComponent(String(id))}`, { method: "DELETE" });
   }
 

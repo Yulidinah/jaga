@@ -8,6 +8,24 @@ import type { Row, TeamStatus } from "../types.js";
 
 const TEAM_STATUSES: TeamStatus[] = ["AVAILABLE", "ASSIGNED", "EN_ROUTE", "ON_SCENE", "OFF_DUTY"];
 
+/** PUSAT bebas; RESCUE hanya untuk tim organisasinya sendiri. */
+const assertTeamControl = (ctx: Ctx, team: Row) => {
+  if (ctx.session.role === "PUSAT") return;
+  if (ctx.session.role !== "RESCUE" || !ctx.session.organizationId || String(team.organization_id) !== ctx.session.organizationId) {
+    throw forbidden("Tim ini berada di luar organisasi Anda");
+  }
+};
+
+/** Membaca detail/jejak tim: PUSAT semua, RESCUE organisasinya, DESA tim yang bermarkas di desanya. */
+const assertTeamView = (ctx: Ctx, team: Row) => {
+  if (ctx.session.role === "DESA") {
+    const ids = scopeIds(ctx.session) ?? [];
+    if (!team.home_village_id || !ids.includes(String(team.home_village_id))) throw forbidden("Tim ini berada di luar wilayah Anda");
+    return;
+  }
+  assertTeamControl(ctx, team);
+};
+
 const teamShape = (team: Row) => ({
   id: team.id,
   organizationId: team.organization_id,
@@ -43,6 +61,7 @@ export async function listTeams(ctx: Ctx) {
 export async function getTeam(ctx: Ctx) {
   const team = await ctx.store.one("rescue_teams", { eq: { id: param(ctx, "id") } });
   if (!team) throw notFound("Tim tidak ditemukan");
+  assertTeamView(ctx, team);
   const [members, assignments, history] = await Promise.all([
     ctx.store.list("rescue_team_members", { eq: { team_id: param(ctx, "id") } }),
     ctx.store.list("incident_assignments", { eq: { team_id: param(ctx, "id") } }),
@@ -103,6 +122,7 @@ export async function updateTeam(ctx: Ctx) {
   requireRole(ctx.session, ["PUSAT", "RESCUE"]);
   const team = await ctx.store.one("rescue_teams", { eq: { id: param(ctx, "id") } });
   if (!team) throw notFound("Tim tidak ditemukan");
+  assertTeamControl(ctx, team);
   const patch: Row = { updated_at: nowIso() };
   if (ctx.body.name !== undefined) patch.name = text(ctx.body.name, "Nama tim", { max: 160 });
   if (ctx.body.callSign !== undefined) patch.call_sign = optionalText(ctx.body.callSign, "Call sign", 40);
@@ -118,7 +138,7 @@ export async function updateTeam(ctx: Ctx) {
     actorId: ctx.session.profileId, action: "TEAM_UPDATE", entityType: "rescue_teams",
     entityId: param(ctx, "id"), summary: "Memperbarui tim", before: team, after: updated
   });
-  publish("team.updated", { id: param(ctx, "id"), status: updated?.status });
+  publish("team.updated", { id: param(ctx, "id"), status: updated?.status }, team.home_village_id ?? undefined);
   return teamShape(updated ?? team);
 }
 
@@ -126,13 +146,14 @@ export async function setTeamStatus(ctx: Ctx) {
   if (ctx.session.role === "DESA") throw forbidden("Petugas desa tidak dapat mengubah status tim");
   const team = await ctx.store.one("rescue_teams", { eq: { id: param(ctx, "id") } });
   if (!team) throw notFound("Tim tidak ditemukan");
+  assertTeamControl(ctx, team);
   const status = oneOf(ctx.body.status, TEAM_STATUSES, "Status tim");
   const updated = await ctx.store.update("rescue_teams", param(ctx, "id"), { status, updated_at: nowIso() });
   await record(ctx.store, {
     actorId: ctx.session.profileId, action: "TEAM_STATUS", entityType: "rescue_teams",
     entityId: param(ctx, "id"), summary: `Status tim ${team.status} menjadi ${status}`, before: team, after: updated
   });
-  publish("team.updated", { id: param(ctx, "id"), status });
+  publish("team.updated", { id: param(ctx, "id"), status }, team.home_village_id ?? undefined);
   return teamShape(updated ?? team);
 }
 
@@ -140,6 +161,7 @@ export async function addTeamMember(ctx: Ctx) {
   requireRole(ctx.session, ["PUSAT", "RESCUE"]);
   const team = await ctx.store.one("rescue_teams", { eq: { id: param(ctx, "id") } });
   if (!team) throw notFound("Tim tidak ditemukan");
+  assertTeamControl(ctx, team);
   const profileId = clean(ctx.body.profileId);
   const profile = await ctx.store.one("profiles", { eq: { id: profileId } });
   if (!profile) throw badRequest("Profil anggota tidak ditemukan");
@@ -156,7 +178,10 @@ export async function addTeamMember(ctx: Ctx) {
 
 export async function removeTeamMember(ctx: Ctx) {
   requireRole(ctx.session, ["PUSAT", "RESCUE"]);
-  await ctx.store.remove("rescue_team_members", { team_id: param(ctx, "id"), profile_id: param(ctx, "profileId") });
+  const team = await ctx.store.one("rescue_teams", { eq: { id: param(ctx, "id") } });
+  if (!team) throw notFound("Tim tidak ditemukan");
+  assertTeamControl(ctx, team);
+  await ctx.store.removeWhere("rescue_team_members", { eq: { team_id: param(ctx, "id"), profile_id: param(ctx, "profileId") } });
   await record(ctx.store, {
     actorId: ctx.session.profileId, action: "TEAM_MEMBER_REMOVE", entityType: "rescue_teams",
     entityId: param(ctx, "id"), summary: `Menghapus anggota tim ${param(ctx, "profileId")}`
@@ -169,6 +194,7 @@ export async function removeTeamMember(ctx: Ctx) {
 export async function reportTeamPosition(ctx: Ctx) {
   const team = await ctx.store.one("rescue_teams", { eq: { id: param(ctx, "id") } });
   if (!team) throw notFound("Tim tidak ditemukan");
+  assertTeamControl(ctx, team);
   const point = { latitude: Number(ctx.body.latitude), longitude: Number(ctx.body.longitude) };
   if (!isValidPoint(point)) throw badRequest("Koordinat posisi tim tidak valid");
   const incidentId = optionalText(ctx.body.incidentId, "Insiden");
@@ -179,14 +205,18 @@ export async function reportTeamPosition(ctx: Ctx) {
     incident_id: incidentId,
     latitude: point.latitude,
     longitude: point.longitude,
-    accuracy_meters: ctx.body.accuracyMeters ? Number(ctx.body.accuracyMeters) : null,
+    location: `SRID=4326;POINT(${point.longitude} ${point.latitude})`,
+    accuracy_meters: Number.isFinite(Number(ctx.body.accuracyMeters)) && ctx.body.accuracyMeters ? Number(ctx.body.accuracyMeters) : null,
     recorded_at: nowIso()
   });
-  publish("team.position", { id: param(ctx, "id"), ...point, incidentId });
+  publish("team.position", { id: param(ctx, "id"), ...point, incidentId }, team.home_village_id ?? undefined);
   return { recorded: true, trailId: trail.id ?? null };
 }
 
 export async function teamTrail(ctx: Ctx) {
+  const owner = await ctx.store.one("rescue_teams", { eq: { id: param(ctx, "id") } });
+  if (!owner) throw notFound("Tim tidak ditemukan");
+  assertTeamView(ctx, owner);
   const limit = Math.min(500, Math.max(1, Number(ctx.query.get("limit") ?? 100) || 100));
   return ctx.store.list("team_location_history", { eq: { team_id: param(ctx, "id") }, order: { recorded_at: "desc" }, limit });
 }
@@ -194,10 +224,13 @@ export async function teamTrail(ctx: Ctx) {
 export async function teamEta(ctx: Ctx) {
   const team = await ctx.store.one("rescue_teams", { eq: { id: param(ctx, "id") } });
   if (!team) throw notFound("Tim tidak ditemukan");
-  const incident = await ctx.store.one("incidents", { eq: { id: param(ctx, "incidentId") } });
+  assertTeamView(ctx, team);
+  const incidentId = clean(ctx.query.get("incidentId"));
+  if (!incidentId) throw badRequest("Parameter query incidentId wajib diisi");
+  const incident = await ctx.store.one("incidents", { eq: { id: incidentId } });
   if (!incident) throw notFound("Insiden tidak ditemukan");
   assertVillageAccess(ctx.session, incident.village_id);
-  if (team.latitude === null || team.longitude === null) throw badRequest("Posisi tim belum dilaporkan");
+  if (team.latitude === null || team.latitude === undefined || team.longitude === null || team.longitude === undefined) throw badRequest("Posisi tim belum dilaporkan");
 
   const village = incident.village_id ? await ctx.store.one("villages", { eq: { id: String(incident.village_id) } }) : null;
   const zones = incident.village_id ? await ctx.store.list("hazard_zones", { eq: { village_id: String(incident.village_id) } }) : [];
@@ -209,7 +242,7 @@ export async function teamEta(ctx: Ctx) {
   });
   return {
     teamId: param(ctx, "id"),
-    incidentId: param(ctx, "incidentId"),
+    incidentId,
     distanceMeters: estimate.distanceMeters,
     durationSeconds: estimate.durationSeconds,
     durationMinutes: Math.round(estimate.durationSeconds / 60),
@@ -233,9 +266,12 @@ export async function assignTeam(ctx: Ctx) {
   if (["SAFE", "CANCELLED", "CLOSED"].includes(String(incident.status))) {
     throw conflict("Insiden sudah ditutup, penugasan tidak dapat ditambah");
   }
-  const team = await ctx.store.one("rescue_teams", { eq: { id: param(ctx, "teamId") } });
-  if (!team) throw badRequest("Tim tidak ditemukan");
+  const team = await ctx.store.one("rescue_teams", { eq: { id: clean(ctx.body.teamId) } });
+  if (!team) throw badRequest("Tim tidak ditemukan; kirim teamId pada body");
+  assertTeamControl(ctx, team);
   if (team.active === false) throw badRequest("Tim sedang tidak aktif");
+  const already = await ctx.store.one("incident_assignments", { eq: { incident_id: param(ctx, "id"), team_id: String(team.id) }, isNull: { completed_at: true } });
+  if (already) throw conflict(`Tim ${team.name} sudah ditugaskan pada insiden ini`);
   const busy = await ctx.store.list("incident_assignments", { eq: { team_id: String(team.id) }, isNull: { completed_at: true } });
   if (busy.length && !ctx.body.force) {
     throw conflict(`Tim ${team.name} masih bertugas pada insiden lain. Gunakan force untuk memaksa.`, { busy });
@@ -245,8 +281,7 @@ export async function assignTeam(ctx: Ctx) {
     incident_id: param(ctx, "id"),
     team_id: String(team.id),
     assigned_by: ctx.session.profileId,
-    assigned_at: nowIso(),
-    accepted_at: nowIso()
+    assigned_at: nowIso()
   });
   if (String(team.status) === "AVAILABLE" || String(team.status) === "OFF_DUTY") {
     await ctx.store.update("rescue_teams", String(team.id), { status: "ASSIGNED", updated_at: nowIso() });
@@ -272,7 +307,10 @@ export async function unassignTeam(ctx: Ctx) {
   if (!assignment) throw notFound("Penugasan tidak ditemukan");
   const incident = await ctx.store.one("incidents", { eq: { id: String(assignment.incident_id) } });
   if (incident) assertVillageAccess(ctx.session, incident.village_id);
-  const remaining = await ctx.store.list("incident_assignments", { eq: { incident_id: String(assignment.incident_id) }, neq: { id: param(ctx, "assignmentId") }, isNull: { completed_at: true } });
+  const assignedTeam = await ctx.store.one("rescue_teams", { eq: { id: String(assignment.team_id) } });
+  if (assignedTeam) assertTeamControl(ctx, assignedTeam);
+  // Tim kembali tersedia hanya bila tidak punya penugasan aktif lain (pada insiden mana pun).
+  const remaining = await ctx.store.list("incident_assignments", { eq: { team_id: String(assignment.team_id) }, neq: { id: param(ctx, "assignmentId") }, isNull: { completed_at: true } });
   await ctx.store.update("incident_assignments", param(ctx, "assignmentId"), { completed_at: nowIso() });
   if (!remaining.length) {
     await ctx.store.update("rescue_teams", String(assignment.team_id), { status: "AVAILABLE", updated_at: nowIso() });
@@ -285,7 +323,10 @@ export async function unassignTeam(ctx: Ctx) {
 }
 
 export async function acceptAssignment(ctx: Ctx) {
-  const assignments = await ctx.store.list("incident_assignments", { eq: { team_id: param(ctx, "teamId") }, isNull: { accepted_at: true } });
+  const team = await ctx.store.one("rescue_teams", { eq: { id: param(ctx, "id") } });
+  if (!team) throw notFound("Tim tidak ditemukan");
+  assertTeamControl(ctx, team);
+  const assignments = await ctx.store.list("incident_assignments", { eq: { team_id: param(ctx, "id") }, isNull: { accepted_at: true, completed_at: true } });
   if (!assignments.length) throw notFound("Tidak ada penugasan yang menunggu");
   const accepted = [];
   for (const assignment of assignments) {
@@ -293,17 +334,21 @@ export async function acceptAssignment(ctx: Ctx) {
   }
   await record(ctx.store, {
     actorId: ctx.session.profileId, action: "TEAM_ACCEPT", entityType: "rescue_teams",
-    entityId: param(ctx, "teamId"), summary: `Menerima ${assignments.length} penugasan`
+    entityId: param(ctx, "id"), summary: `Menerima ${assignments.length} penugasan`
   });
   return { accepted: accepted.filter(Boolean) };
 }
 
 export async function listAssignments(ctx: Ctx) {
   const teamId = clean(ctx.query.get("teamId"));
-  const rows = await ctx.store.list("incident_assignments", teamId ? { eq: { team_id: teamId } } : {}, );
-  const incidentIds = Array.from(new Set(rows.map(row => String(row.incident_id))));
-  const incidents = incidentIds.length ? await ctx.store.list("incidents", { in: { id: incidentIds } }) : [];
+  const allRows = await ctx.store.list("incident_assignments", teamId ? { eq: { team_id: teamId } } : {});
+  const incidentIds = Array.from(new Set(allRows.map(row => String(row.incident_id))));
+  const scope = scopeIds(ctx.session);
+  const incidents = incidentIds.length
+    ? await ctx.store.list("incidents", { in: { id: incidentIds }, ...(scope === null ? {} : { pred: (row: Row) => scope.includes(String(row.village_id)) }) })
+    : [];
   const map = indexBy(incidents, row => String(row.id));
+  const rows = allRows.filter(row => map.has(String(row.incident_id)));
   return rows.map(row => ({
     id: row.id,
     incidentId: row.incident_id,

@@ -217,6 +217,7 @@ export class MemoryStore implements Store {
   }
 
   async remove(name: string, id: unknown): Promise<void> {
+    if (id && typeof id === "object") return this.removeWhere(name, { eq: id as Record<string, unknown> });
     const table = this.table(name);
     const index = table.rows.findIndex(candidate => sameValue(candidate.id, id));
     if (index >= 0) table.rows.splice(index, 1);

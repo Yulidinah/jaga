@@ -1,6 +1,6 @@
 import { record } from "../audit.js";
-import { requireRole } from "../auth.js";
-import { badRequest, clean, conflict, indexBy, notFound, nowIso, oneOf, optionalText, text } from "../lib.js";
+import { requireRole, scopeIds } from "../auth.js";
+import { badRequest, clean, conflict, indexBy, notFound, nowIso, oneOf, optionalText, requireUuid, text } from "../lib.js";
 import { publish } from "../realtime.js";
 import { evaluateRules, LEVEL_LABEL, levelForScore, REQUIRED_FACTORS } from "../recommend.js";
 import { param, type Ctx } from "../router.js";
@@ -102,8 +102,9 @@ export async function saveRules(ctx: Ctx) {
   const ruleSet = await ctx.store.one("priority_rule_sets", { eq: { id: param(ctx, "id") } });
   if (!ruleSet) throw notFound("Rule set tidak ditemukan");
   if (String(ruleSet.status) === "ARCHIVED") throw conflict("Rule set yang diarsipkan tidak dapat diubah");
-  if (String(ruleSet.status) === "ACTIVE" && !ctx.body.allowEditingActive) {
-    throw conflict("Rule set aktif tidak boleh diubah. Buat versi baru.", { hint: "Kirim allowEditingActive: true bila perubahan memang disengaja." });
+  if (String(ruleSet.status) === "ACTIVE") {
+    // Rekomendasi lama merujuk rule set ini; mengubahnya di tempat membuat hasil lama tidak bisa direproduksi.
+    throw conflict("Rule set aktif tidak boleh diubah. Buat versi baru.");
   }
   const items = Array.isArray(ctx.body.rules) ? ctx.body.rules : [];
   if (!items.length) throw badRequest("Kirim minimal satu aturan");
@@ -131,8 +132,16 @@ export async function saveRules(ctx: Ctx) {
     };
   });
 
+  const previous = await ctx.store.list("priority_rules", { eq: { rule_set_id: param(ctx, "id") } });
   await ctx.store.removeWhere("priority_rules", { eq: { rule_set_id: param(ctx, "id") } });
-  const saved = await ctx.store.insertMany("priority_rules", rows);
+  let saved: Row[];
+  try {
+    saved = await ctx.store.insertMany("priority_rules", rows);
+  } catch (error) {
+    // Pulihkan aturan lama bila penyimpanan gagal supaya rule set tidak kosong.
+    if (previous.length) await ctx.store.insertMany("priority_rules", previous).catch(() => undefined);
+    throw error;
+  }
   await record(ctx.store, {
     actorId: ctx.session.profileId, action: "RULESET_RULES_SAVE", entityType: "priority_rule_sets",
     entityId: param(ctx, "id"), summary: `Menyimpan ${rows.length} aturan`
@@ -157,17 +166,21 @@ export async function publishRuleSet(ctx: Ctx) {
     return setShape(updated ?? ruleSet);
   }
   if (action === "activate") {
-    const approvalNote = text(ctx.body.approvalNote ?? "Disetujui oleh JAGA Pusat", "Catatan persetujuan", { min: 5, max: 500 });
-    const others = await ctx.store.list("priority_rule_sets", { eq: { status: "ACTIVE" } });
-    for (const other of others) {
-      if (String(other.id) === param(ctx, "id")) continue;
-      if (String(other.disaster_type ?? "") === String(ruleSet.disaster_type ?? "")) {
-        await ctx.store.update("priority_rule_sets", String(other.id), { status: "ARCHIVED" });
-      }
+    if (String(ruleSet.status) === "ARCHIVED") throw conflict("Rule set yang diarsipkan tidak dapat diaktifkan kembali. Buat versi baru.");
+    const approvalNote = text(ctx.body.approvalNote, "Catatan persetujuan", { min: 5, max: 500 });
+    const others = (await ctx.store.list("priority_rule_sets", { eq: { status: "ACTIVE" } }))
+      .filter(other => String(other.id) !== param(ctx, "id") && String(other.disaster_type ?? "") === String(ruleSet.disaster_type ?? ""));
+    for (const other of others) await ctx.store.update("priority_rule_sets", String(other.id), { status: "ARCHIVED" });
+    let updated: Row | null;
+    try {
+      updated = await ctx.store.update("priority_rule_sets", param(ctx, "id"), {
+        status: "ACTIVE", approved_by: ctx.session.profileId, approved_at: nowIso(), applies_from: ruleSet.applies_from ?? nowIso()
+      });
+    } catch (error) {
+      // Kembalikan rule set lama agar tidak ada masa tanpa aturan aktif.
+      for (const other of others) await ctx.store.update("priority_rule_sets", String(other.id), { status: "ACTIVE" }).catch(() => undefined);
+      throw error;
     }
-    const updated = await ctx.store.update("priority_rule_sets", param(ctx, "id"), {
-      status: "ACTIVE", approved_by: ctx.session.profileId, approved_at: nowIso(), applies_from: ruleSet.applies_from ?? nowIso()
-    });
     await record(ctx.store, {
       actorId: ctx.session.profileId, action: "RULESET_ACTIVATE", entityType: "priority_rule_sets",
       entityId: param(ctx, "id"), summary: `Mengaktifkan ${ruleSet.name} v${ruleSet.version}. ${approvalNote}`, before: ruleSet, after: updated
@@ -206,7 +219,8 @@ export async function simulateRuleSet(ctx: Ctx) {
 }
 
 export async function listThresholds(ctx: Ctx) {
-  const rows = await ctx.store.list("priority_thresholds", { order: { min_score: "asc" } });
+  const ruleSetId = clean(ctx.query.get("ruleSetId"));
+  const rows = await ctx.store.list("priority_thresholds", { ...(ruleSetId ? { eq: { rule_set_id: ruleSetId } } : {}), order: { min_score: "asc" } });
   return rows.map(row => ({
     minScore: row.min_score,
     level: row.level,
@@ -216,13 +230,17 @@ export async function listThresholds(ctx: Ctx) {
 
 export async function upsertThreshold(ctx: Ctx) {
   requireRole(ctx.session, ["PUSAT"]);
-  const minScore = Math.max(-999, Math.min(999, Number(ctx.body.minScore ?? 0)));
+  const ruleSetId = requireUuid(ctx.body.ruleSetId, "Rule set");
+  const ruleSet = await ctx.store.one("priority_rule_sets", { eq: { id: ruleSetId } });
+  if (!ruleSet) throw notFound("Rule set tidak ditemukan");
+  if (String(ruleSet.status) === "ACTIVE") throw conflict("Ambang rule set aktif tidak boleh diubah. Buat versi baru.");
+  const minScore = Number(ctx.body.minScore ?? 0);
+  if (!Number.isFinite(minScore) || minScore < -999 || minScore > 999) throw badRequest("minScore harus angka antara -999 dan 999");
   const level = oneOf(ctx.body.level, ["PANTAU", "SEGERA_TINJAU", "RESPONS_CEPAT", "DARURAT"] as const, "Level");
-  await ctx.store.removeWhere("priority_thresholds", { eq: { min_score: minScore } });
-  const row = await ctx.store.insert("priority_thresholds", { min_score: minScore, level, created_at: nowIso() });
+  const [row] = await ctx.store.upsert("priority_thresholds", [{ rule_set_id: ruleSetId, level, min_score: minScore }], ["rule_set_id", "level"]);
   await record(ctx.store, {
     actorId: ctx.session.profileId, action: "THRESHOLD_UPSERT", entityType: "priority_thresholds",
-    entityId: null, summary: `Ambang ${minScore} -> ${level}`, after: row
+    entityId: ruleSetId, summary: `Ambang ${minScore} -> ${level}`, after: row ?? null
   });
   return row;
 }
@@ -272,10 +290,13 @@ export const factorCatalog = () => REQUIRED_FACTORS.map(key => ({
 
 export async function listOverrides(ctx: Ctx) {
   requireRole(ctx.session, ["PUSAT", "DESA"]);
-  const rows = await ctx.store.list("priority_overrides", { order: { created_at: "desc" }, limit: 200 });
-  const incidentIds = Array.from(new Set(rows.map(row => String(row.incident_id))));
+  const allRows = await ctx.store.list("priority_overrides", { order: { created_at: "desc" }, limit: 200 });
+  const incidentIds = Array.from(new Set(allRows.map(row => String(row.incident_id))));
   const incidents = incidentIds.length ? await ctx.store.list("incidents", { in: { id: incidentIds } }) : [];
-  const map = indexBy(incidents, row => String(row.id));
+  const scope = scopeIds(ctx.session);
+  const visible = scope === null ? incidents : incidents.filter(row => scope.includes(String(row.village_id)));
+  const map = indexBy(visible, row => String(row.id));
+  const rows = allRows.filter(row => map.has(String(row.incident_id)));
   return rows.map(row => ({
     id: row.id,
     incidentId: row.incident_id,

@@ -19,8 +19,19 @@ const DEFAULT_BANDS: Array<{ min: number; level: RecommendationLevel }> = [
   { min: -999, level: "PANTAU" }
 ];
 
-export const levelForScore = (score: number): RecommendationLevel =>
-  DEFAULT_BANDS.find(band => score >= band.min)?.level ?? "PANTAU";
+export type Bands = Array<{ min: number; level: RecommendationLevel }>;
+
+/** Mengubah baris priority_thresholds menjadi pita skor (diurutkan dari ambang tertinggi). */
+export const bandsFrom = (rows: Row[]): Bands => {
+  const bands = rows
+    .filter(row => LEVELS.includes(String(row.level) as RecommendationLevel) && Number.isFinite(Number(row.min_score)))
+    .map(row => ({ min: Number(row.min_score), level: String(row.level) as RecommendationLevel }))
+    .sort((a, b) => b.min - a.min);
+  return bands.length ? [...bands, { min: -Infinity, level: "PANTAU" as RecommendationLevel }] : DEFAULT_BANDS;
+};
+
+export const levelForScore = (score: number, bands: Bands = DEFAULT_BANDS): RecommendationLevel =>
+  bands.find(band => score >= band.min)?.level ?? "PANTAU";
 
 export interface FactorContext {
   factors: Record<string, unknown>;
@@ -130,6 +141,7 @@ export interface RecommendationInput {
   factors: FactorInput[];
   overrideLevel?: RecommendationLevel | null;
   overrideReason?: string | null;
+  bands?: Bands;
 }
 
 export interface RecommendationResult {
@@ -138,6 +150,8 @@ export interface RecommendationResult {
   ruleSetVersion: number;
   score: number;
   suggestedLevel: RecommendationLevel;
+  /** Level murni hasil aturan, sebelum override petugas. */
+  systemLevel: RecommendationLevel;
   levelLabel: string;
   reasons: Array<{ factor: string; delta: number; explanation: string }>;
   missingFactors: string[];
@@ -177,7 +191,7 @@ export function recommend(input: RecommendationInput): RecommendationResult {
   }
   const context: FactorContext = { factors, known };
   const result = evaluateRules(input.rules, context);
-  const suggested = levelForScore(result.score);
+  const suggested = levelForScore(result.score, input.bands);
   const overridden = input.overrideLevel && input.overrideLevel !== suggested ? input.overrideLevel : null;
 
   return {
@@ -186,6 +200,7 @@ export function recommend(input: RecommendationInput): RecommendationResult {
     ruleSetVersion: Number(input.ruleSet.version ?? 1),
     score: result.score,
     suggestedLevel: overridden ?? suggested,
+    systemLevel: suggested,
     levelLabel: LEVEL_LABEL[overridden ?? suggested],
     reasons: result.reasons,
     missingFactors: REQUIRED_FACTORS.filter(key => !known.has(key)),
@@ -200,7 +215,8 @@ export function recommend(input: RecommendationInput): RecommendationResult {
 
 /** Faktor yang dapat dihitung langsung dari data warga. */
 export function profileFactors(resident: Row, vulns: Row[], contacts: Row[]): FactorInput[] {
-  const categories = vulns.map(vuln => String(vuln.category ?? vuln.vulnerability_type_id ?? "")).filter(Boolean);
+  // Baris kerentanan membawa kategori lewat relasi `type`; jangan jatuh ke UUID jenis kerentanan.
+  const categories = vulns.map(vuln => String(vuln.type?.category ?? vuln.category ?? "")).filter(Boolean);
   const severities = vulns.map(vuln => Number(vuln.severity ?? 0));
   const highest = severities.length ? Math.max(...severities) : 0;
   const age = ageFrom(resident.birth_date);
@@ -225,14 +241,15 @@ export function profileFactors(resident: Row, vulns: Row[], contacts: Row[]): Fa
 }
 
 /** Faktor yang berasal dari situation report / device / penilaian lapangan. */
-export function incidentFactors(incident: Row, telemetry: Row | null): FactorInput[] {
-  const hour = new Date().getHours();
+export function incidentFactors(incident: Row, telemetry: Row | null, device: Row | null = null): FactorInput[] {
+  // Malam hari ditentukan menurut WIB, bukan zona waktu server.
+  const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Asia/Jakarta" }).format(new Date())) % 24;
   const factors: FactorInput[] = [
     { key: "incident_type", value: String(incident.disaster_type ?? ""), source: "INCIDENT", note: "Jenis bencana dari laporan warga" },
     { key: "severity_reported", value: clean(incident.severity), source: "INCIDENT" },
     { key: "affected_count", value: num(incident.affected_count), source: "INCIDENT" },
-    { key: "device_battery", value: num(telemetry?.battery), source: "DEVICE" },
-    { key: "device_online", value: telemetry ? telemetry.online === true : null, source: "DEVICE" },
+    { key: "device_battery", value: num(device?.battery ?? telemetry?.battery), source: "DEVICE" },
+    { key: "device_online", value: device ? device.online === true : null, source: "DEVICE" },
     { key: "is_night", value: hour < 6 || hour >= 18, source: "SYSTEM" }
   ];
   return factors;
@@ -268,15 +285,20 @@ export function mergeFactors(...groups: FactorInput[][]): FactorInput[] {
   return Array.from(byKey.values());
 }
 
-export async function activeRuleSet(store: Store, disasterType?: string | null): Promise<{ ruleSet: Row; rules: Row[] }> {
+/** Aturan khusus jenis bencana didahulukan; bila tidak ada, dipakai aturan umum (tanpa jenis bencana). */
+export async function activeRuleSet(store: Store, disasterType?: string | null): Promise<{ ruleSet: Row; rules: Row[]; bands: Bands; fallback: boolean }> {
   const ruleSets = await store.list("priority_rule_sets", { eq: { status: "ACTIVE" } });
-  const chosen = ruleSets
-    .filter(row => !disasterType || !row.disaster_type || String(row.disaster_type) === disasterType)
-    .sort((a, b) => Number(b.version ?? 0) - Number(a.version ?? 0))[0]
-    ?? ruleSets.sort((a, b) => Number(b.version ?? 0) - Number(a.version ?? 0))[0];
-  if (!chosen) throw badRequest("Belum ada rule set prioritas berstatus ACTIVE. Publikasikan satu lewat /api/rulesets.");
-  const rules = await store.list("priority_rules", { eq: { rule_set_id: String(chosen.id) } });
-  return { ruleSet: chosen, rules };
+  const byVersion = (a: Row, b: Row) => Number(b.version ?? 0) - Number(a.version ?? 0);
+  const exact = ruleSets.filter(row => disasterType && String(row.disaster_type ?? "") === disasterType).sort(byVersion)[0]
+    ?? ruleSets.filter(row => !row.disaster_type).sort(byVersion)[0];
+  // Tanpa aturan yang cocok, pakai aturan aktif lain agar SOS tetap mendapat rekomendasi, tetapi tandai sebagai cadangan.
+  const chosen = exact ?? [...ruleSets].sort(byVersion)[0];
+  if (!chosen) throw badRequest("Belum ada rule set prioritas berstatus ACTIVE untuk jenis bencana ini. Publikasikan satu lewat /api/rulesets.");
+  const [rules, thresholds] = await Promise.all([
+    store.list("priority_rules", { eq: { rule_set_id: String(chosen.id) } }),
+    store.list("priority_thresholds", { eq: { rule_set_id: String(chosen.id) } })
+  ]);
+  return { ruleSet: chosen, rules, bands: bandsFrom(thresholds), fallback: !exact };
 }
 
 export const parseOverrideLevel = (value: unknown): RecommendationLevel | null => {

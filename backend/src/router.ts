@@ -64,7 +64,9 @@ export class Router {
       for (let i = 0; i < route.segments.length; i += 1) {
         const segment = route.segments[i] ?? "";
         const actual = parts[i] ?? "";
-        if (segment.startsWith(":")) params[segment.slice(1)] = decodeURIComponent(actual);
+        if (segment.startsWith(":")) {
+          try { params[segment.slice(1)] = decodeURIComponent(actual); } catch { throw badRequest("Parameter URL tidak valid"); }
+        }
         else if (segment !== actual) { matched = false; break; }
       }
       if (!matched) continue;

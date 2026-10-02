@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
-import { config, supabaseEnabled } from "./config.js";
+import { config } from "./config.js";
 import { badRequest, clean, forbidden, hashPassword, nowIso, parseCookies, randomToken, safeEqual, sha256Hex, unauthorized, verifyPassword } from "./lib.js";
 import type { JagaRole, Row, Session } from "./types.js";
 import type { Store } from "./store.js";
@@ -33,9 +33,21 @@ export function issueInternalToken(claims: Omit<InternalClaims, "exp"> & { exp?:
   return `${body}.${sign(body)}`;
 }
 
+/** Token internal yang dicabut saat logout (disimpan sampai kedaluwarsa). */
+const revoked = new Map<string, number>();
+export function revokeInternalToken(token: string): void {
+  const [body, signature] = token.split(".");
+  if (!body || !signature) return;
+  const claims = readInternalToken(token);
+  revoked.set(signature, (claims?.exp ?? Math.floor(Date.now() / 1000) + config.sessionTtlSeconds) * 1000);
+  const now = Date.now();
+  for (const [key, until] of revoked) if (until < now) revoked.delete(key);
+}
+
 export function readInternalToken(token: string): InternalClaims | null {
   const [body, signature] = token.split(".");
   if (!body || !signature) return null;
+  if (revoked.has(signature)) return null;
   const expected = sign(body);
   if (!safeEqual(signature, expected)) return null;
   try {
@@ -66,14 +78,18 @@ async function villageNames(store: Store, villageIds: string[] | null): Promise<
 }
 
 async function sessionFromProfile(store: Store, profile: Row, extras: Partial<Session> = {}): Promise<Session> {
-  const organizationId = profile.organization_id ? String(profile.organization_id) : null;
+  const role = String(profile.role ?? "DESA").toUpperCase() as JagaRole;
+  let organizationId = profile.organization_id ? String(profile.organization_id) : null;
+  if (!organizationId && profile.id && role !== "PUSAT") {
+    const membership = await store.one("organization_members", { eq: { profile_id: String(profile.id) } }).catch(() => null);
+    if (membership?.organization_id) organizationId = String(membership.organization_id);
+  }
   const declared = Array.isArray(extras.villageIds)
     ? extras.villageIds
     : Array.isArray(profile.village_ids) ? (profile.village_ids as string[]) : null;
   const scopes = organizationId
     ? (await store.list("organization_service_areas", { eq: { organization_id: organizationId } })).map(row => String(row.village_id))
     : [];
-  const role = String(profile.role ?? "DESA").toUpperCase() as JagaRole;
   const villageIds = role === "PUSAT" ? null : uniqueList(declared ?? scopes);
   const organization = organizationId ? await store.one("organizations", { eq: { id: organizationId } }) : null;
   return {
@@ -110,7 +126,7 @@ export async function authenticate(store: Store, email: string, password: string
   const address = clean(email).toLowerCase();
   if (!address || !password) throw badRequest("Email dan kata sandi wajib diisi");
 
-  if (supabaseEnabled) {
+  if (store.kind === "supabase") {
     const grant = await supabasePasswordGrant(address, password).catch(() => null);
     if (grant) {
       const profile = await store.one("profiles", { eq: { id: grant.userId } });
@@ -125,9 +141,11 @@ export async function authenticate(store: Store, email: string, password: string
     }
   }
 
-  const account = await store.one("internal_accounts", { eq: { email: address } });
+  const account = store.kind === "supabase"
+    ? null
+    : await store.one("internal_accounts", { eq: { email: address } });
   if (!account || account.active === false) throw unauthorized("Email atau kata sandi salah");
-  if (!verifyPassword(password, String(account.password_hash ?? ""))) throw unauthorized("Email atau kata sandi salah");
+  if (!(await verifyPassword(password, String(account.password_hash ?? "")))) throw unauthorized("Email atau kata sandi salah");
 
   const profile = account.profile_id
     ? await store.one("profiles", { eq: { id: String(account.profile_id) } })
@@ -137,12 +155,15 @@ export async function authenticate(store: Store, email: string, password: string
     display_name: account.display_name,
     role: account.role
   };
+  if (profile && profile.active === false) throw unauthorized("Akun dinonaktifkan");
   const session = await sessionFromProfile(store, {
     ...base,
+    role: account.role ?? base.role,
     email: address,
     organization_id: account.organization_id ?? null,
     village_ids: account.village_ids ?? null
   });
+  await store.update("internal_accounts", String(account.id), { last_login_at: nowIso() }).catch(() => null);
   const token = issueInternalToken({
     email: address,
     profileId: session.profileId,
@@ -176,13 +197,30 @@ export function tokenFromRequest(req: IncomingMessage): string | null {
 export async function resolveSession(store: Store, req: IncomingMessage): Promise<Session | null> {
   const token = tokenFromRequest(req);
   if (token) {
-    if (looksLikeJwt(token) && supabaseEnabled) {
+    if (looksLikeJwt(token) && store.kind === "supabase") {
       const session = await authenticateSupabaseToken(store, token).catch(() => null);
       if (session) return session;
       return null;
     }
     const claims = readInternalToken(token);
     if (!claims) return null;
+    // Peran, status, dan wilayah dibaca ulang dari data terbaru supaya perubahan hak akses langsung berlaku.
+    if (store.kind !== "supabase") {
+      const account = await store.one("internal_accounts", { eq: { email: claims.email } }).catch(() => null);
+      if (account) {
+        if (account.active === false) return null;
+        const live = account.profile_id ? await store.one("profiles", { eq: { id: String(account.profile_id) } }).catch(() => null) : null;
+        if (live && live.active === false) return null;
+        return sessionFromProfile(store, {
+          id: claims.profileId,
+          display_name: live?.display_name ?? account.display_name,
+          role: live?.role ?? account.role,
+          email: claims.email,
+          organization_id: account.organization_id ?? null,
+          village_ids: account.village_ids ?? null
+        }, { userId: claims.email });
+      }
+    }
     const profile = claims.profileId
       ? await store.one("profiles", { eq: { id: claims.profileId } }).catch(() => null)
       : null;
@@ -259,7 +297,7 @@ export function sessionCookie(token: string, maxAgeSeconds: number): string {
     "SameSite=Strict",
     `Max-Age=${maxAgeSeconds}`
   ];
-  if (config.secureCookie) parts.push("Secure");
+  if (config.secureCookie || config.env === "production") parts.push("Secure");
   return parts.join("; ");
 }
 
@@ -275,14 +313,16 @@ export interface DeviceAuth {
 }
 
 export async function authenticateDevice(store: Store, req: IncomingMessage, url: URL): Promise<DeviceAuth> {
-  const key = clean(req.headers["x-jaga-device-key"] ?? url.searchParams.get("deviceKey"));
-  const deviceId = clean(req.headers["x-jaga-device-id"] ?? url.searchParams.get("deviceId"));
+  void url;
+  const key = clean(req.headers["x-jaga-device-key"]);
+  const deviceId = clean(req.headers["x-jaga-device-id"]);
   if (!key) throw unauthorized("Kunci perangkat tidak disertakan pada header X-JAGA-Device-Key");
   const device = await store.one("devices", { eq: { id: deviceId } });
   if (!device) throw unauthorized("Perangkat tidak terdaftar");
   if (!device.auth_key_hash || !safeEqual(String(device.auth_key_hash), sha256Hex(key))) {
     throw unauthorized("Kunci perangkat tidak cocok");
   }
+  if (["LOST", "RETIRED"].includes(String(device.status))) throw forbidden("Perangkat berstatus hilang atau dipensiunkan");
   const assignment = await store.one("device_assignments", { eq: { device_id: String(device.id) }, isNull: { unassigned_at: true } });
   return { device, residentId: assignment?.resident_id ? String(assignment.resident_id) : null };
 }
@@ -292,10 +332,10 @@ export interface GatewayAuth {
 }
 
 export async function authenticateGateway(store: Store, req: IncomingMessage, url: URL): Promise<GatewayAuth> {
-  const key = clean(req.headers["x-jaga-gateway-key"] ?? url.searchParams.get("gatewayKey"));
+  void url;
+  const key = clean(req.headers["x-jaga-gateway-key"]);
   if (!key) throw unauthorized("Kunci gateway tidak disertakan pada header X-JAGA-Gateway-Key");
-  const rows = await store.list("gateways", {});
-  const gateway = rows.find(row => safeEqual(String(row.auth_key_hash ?? ""), sha256Hex(key)));
+  const gateway = await store.one("gateways", { eq: { auth_key_hash: sha256Hex(key) } });
   if (!gateway) throw unauthorized("Kunci gateway tidak cocok");
   return { gateway };
 }

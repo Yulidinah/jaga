@@ -1,22 +1,24 @@
-import { config, supabaseEnabled } from "../config.js";
+import { config } from "../config.js";
 import {
-  authenticate, clearSessionCookie, hashPassword, newDeviceKey, newGatewayKey,
-  requireRole, SESSION_COOKIE, sessionCookie, usingEphemeralSessionSecret
+  authenticate, clearSessionCookie, hashPassword,
+  requireRole, revokeInternalToken, SESSION_COOKIE, sessionCookie, tokenFromRequest, usingEphemeralSessionSecret
 } from "../auth.js";
 import { record } from "../audit.js";
-import { badRequest, clean, conflict, forbidden, notFound, nowIso, oneOf, optionalText, randomToken, sha256Hex, text } from "../lib.js";
+import { checkRateLimit, resetRateLimit, badRequest, clean, conflict, forbidden, notFound, nowIso, oneOf, optionalText, sha256Hex, text, uuid } from "../lib.js";
 import { param, type Ctx } from "../router.js";
 import type { JagaRole, Row, Session } from "../types.js";
 
 const ROLES: JagaRole[] = ["PUSAT", "DESA", "RESCUE"];
-const nowMs = () => Date.now();
 
 /* -------------------------------------------------------------- Sesi */
 
 export async function login(ctx: Ctx) {
   const email = clean(ctx.body.email).toLowerCase();
   const password = String(ctx.body.password ?? "");
+  const limitKey = `${ctx.req.socket.remoteAddress ?? "?"}|${email}`;
+  checkRateLimit(limitKey);
   const { token, session } = await authenticate(ctx.store, email, password);
+  resetRateLimit(limitKey);
   await record(ctx.store, {
     actorId: session.profileId,
     action: "AUTH_LOGIN",
@@ -36,6 +38,8 @@ export async function logout(ctx: Ctx) {
     entityId: ctx.session.profileId,
     summary: `Logout ${ctx.session.displayName}`
   });
+  const presented = tokenFromRequest(ctx.req);
+  if (presented) revokeInternalToken(presented);
   ctx.res.setHeader("set-cookie", clearSessionCookie());
   return { message: "Sesi ditutup" };
 }
@@ -51,7 +55,7 @@ export async function me(ctx: Ctx): Promise<Session> {
       canRecordAssessment: true,
       scope: ctx.session.villageIds === null ? "seluruh wilayah" : `${ctx.session.villageIds.length} desa`
     },
-    storage: supabaseEnabled ? "supabase" : "memory"
+    storage: ctx.store.kind
   } as Session;
 }
 
@@ -61,7 +65,7 @@ export async function sessionInfo(ctx: Ctx) {
   return {
     authenticated: true,
     session: ctx.session,
-    storage: supabaseEnabled ? "supabase" : "memory",
+    storage: ctx.store.kind,
     devRoleHeaderEnabled: config.devRoleHeader,
     ephemeralSessionSecret: usingEphemeralSessionSecret,
     mqttConfigured: Boolean(config.mqttUrl && config.mqttUsername)
@@ -70,7 +74,7 @@ export async function sessionInfo(ctx: Ctx) {
 
 /* ---------------------------------------------------------- Akun Whitt */
 
-const accountSummary = (row: Row) => ({
+const accountSummary = (row: Row, supabase = false) => ({
   email: row.email,
   displayName: row.display_name,
   title: row.title ?? null,
@@ -80,38 +84,50 @@ const accountSummary = (row: Row) => ({
   villageIds: row.village_ids ?? null,
   lastLoginAt: row.last_login_at ?? null,
   mustChangePassword: row.must_change_password === true,
-  authSource: row.auth_source ?? (supabaseEnabled ? "supabase" : "internal")
+  authSource: row.auth_source ?? (supabase ? "supabase" : "internal")
 });
 
-/** Daftar akun mengikuti sumber autentikasi yang aktif. */
+/** Daftar akun mengikuti sumber autentikasi yang aktif; DESA hanya melihat akun di lingkupnya. */
 export async function listAccounts(ctx: Ctx) {
   requireRole(ctx.session, ["PUSAT", "DESA"], "Hanya pusat atau desa yang dapat melihat daftar akun");
-  if (supabaseEnabled) {
+  const scope = ctx.session.role === "PUSAT" ? null : new Set(ctx.session.villageIds ?? []);
+  const inScope = (villageIds: unknown) =>
+    scope === null || (Array.isArray(villageIds) && villageIds.some(id => scope.has(String(id))));
+
+  if (ctx.store.kind === "supabase") {
     const profiles = await ctx.store.list("profiles", { order: { display_name: "asc" } });
     const memberships = await ctx.store.list("organization_members", {});
+    const areas = await ctx.store.list("organization_service_areas", {});
+    const orgVillages = new Map<string, string[]>();
+    for (const row of areas) {
+      const key = String(row.organization_id);
+      orgVillages.set(key, [...(orgVillages.get(key) ?? []), String(row.village_id)]);
+    }
     const byProfile = new Map<string, Row>();
     for (const row of memberships) byProfile.set(String(row.profile_id), row);
-    return profiles.map(profile => {
-      const membership = byProfile.get(String(profile.id));
-      return {
-        email: profile.email ?? "",
-        displayName: profile.display_name,
-        title: profile.title ?? null,
-        role: profile.role,
-        active: profile.active !== false,
-        organizationId: membership?.organization_id ?? null,
-        villageIds: null,
-        lastLoginAt: null,
-        mustChangePassword: false,
-        authSource: "supabase"
-      };
-    });
+    return profiles
+      .map(profile => {
+        const membership = byProfile.get(String(profile.id));
+        const organizationId = membership?.organization_id ? String(membership.organization_id) : null;
+        return {
+          email: profile.email ?? "",
+          displayName: profile.display_name,
+          title: profile.title ?? null,
+          role: profile.role,
+          active: profile.active !== false,
+          organizationId,
+          villageIds: profile.role === "PUSAT" ? null : organizationId ? orgVillages.get(organizationId) ?? [] : [],
+          lastLoginAt: null,
+          mustChangePassword: false,
+          authSource: "supabase"
+        };
+      })
+      .filter(row => scope === null || (row.role === "DESA" && inScope(row.villageIds)));
   }
   const rows = await ctx.store.list("internal_accounts", {});
-  const filtered = ctx.session.role === "PUSAT"
-    ? rows
-    : rows.filter(row => row.role === "DESA" && ctx.session.villageIds?.includes(String(row.organization_id ?? "")));
-  return filtered.map(accountSummary);
+  return rows
+    .filter(row => scope === null || (row.role === "DESA" && inScope(row.village_ids)))
+    .map(row => accountSummary(row));
 }
 
 interface SupabaseAdminUser {
@@ -152,6 +168,22 @@ async function setSupabasePassword(userId: string, password: string): Promise<vo
   if (!response.ok) throw badRequest("Gagal mengganti kata sandi di Supabase Auth: " + response.status);
 }
 
+/** Menambah wilayah ke organisasi tanpa menghapus wilayah yang sudah dimiliki anggota lain. */
+async function addServiceAreas(ctx: Ctx, organizationId: string, villageIds: string[]) {
+  const existing = new Set((await ctx.store.list("organization_service_areas", { eq: { organization_id: organizationId } })).map(row => String(row.village_id)));
+  const fresh = villageIds.filter(villageId => !existing.has(villageId));
+  if (fresh.length) {
+    await ctx.store.insertMany("organization_service_areas", fresh.map(villageId => ({ organization_id: organizationId, village_id: villageId })));
+  }
+}
+
+/** Menjaga internal_accounts (mode memori) selaras dengan perubahan profil. */
+async function syncInternalScope(ctx: Ctx, profileId: string, patch: Row) {
+  if (ctx.store.kind === "supabase") return;
+  const account = await ctx.store.one("internal_accounts", { eq: { profile_id: profileId } });
+  if (account) await ctx.store.update("internal_accounts", String(account.id), patch);
+}
+
 export async function createAccount(ctx: Ctx) {
   requireRole(ctx.session, ["PUSAT"], "Hanya JAGA Pusat yang dapat membuat akun");
   const body = ctx.body;
@@ -169,7 +201,7 @@ export async function createAccount(ctx: Ctx) {
 
   let organizationId = optionalText(body.organizationId, "Organisasi");
   if (role === "DESA" && !organizationId) {
-    organizationId = randomToken(16);
+    organizationId = uuid();
     await ctx.store.insert("organizations", {
       id: organizationId,
       name: text(body.organizationName ?? ("Pemdes " + displayName), "Nama organisasi", { max: 160 }),
@@ -183,11 +215,11 @@ export async function createAccount(ctx: Ctx) {
   if (role !== "PUSAT" && !organizationId) throw badRequest("Akun desa dan tim rescue wajib terikat organisasi");
 
   let profileId: string;
-  if (supabaseEnabled) {
+  if (ctx.store.kind === "supabase") {
     const user = await createSupabaseUser(email, password, displayName, title);
     profileId = user.id;
   } else {
-    profileId = optionalText(body.profileId, "Profil") ?? randomToken(16);
+    profileId = uuid();
   }
 
   await ctx.store.upsert("profiles", [{
@@ -203,18 +235,13 @@ export async function createAccount(ctx: Ctx) {
 
   if (organizationId) {
     await ctx.store.upsert("organization_members", [{
-      organization_id: organizationId, profile_id: profileId, role, joined_at: nowIso()
+      organization_id: organizationId, profile_id: profileId, title, joined_at: nowIso()
     }], ["organization_id", "profile_id"]);
-    await ctx.store.removeWhere("organization_service_areas", { eq: { organization_id: organizationId } });
-    if (villageIds.length) {
-      await ctx.store.insertMany("organization_service_areas", villageIds.map(villageId => ({
-        organization_id: organizationId, village_id: villageId, created_at: nowIso()
-      })));
-    }
+    await addServiceAreas(ctx, organizationId, villageIds);
   }
 
-  if (!supabaseEnabled) {
-    const accountId = randomToken(16);
+  if (ctx.store.kind !== "supabase") {
+    const accountId = uuid();
     await ctx.store.insert("internal_accounts", {
       id: accountId,
       email,
@@ -244,8 +271,8 @@ export async function createAccount(ctx: Ctx) {
     role,
     organizationId,
     villageIds,
-    authSource: supabaseEnabled ? "supabase" : "internal",
-    note: supabaseEnabled
+    authSource: ctx.store.kind === "supabase" ? "supabase" : "internal",
+    note: ctx.store.kind === "supabase"
       ? "User dibuat di Supabase Auth..Password awal tetap berlaku sampai pengguna menggantinya."
       : "Akun internal aktif seketika."
   };
@@ -266,20 +293,22 @@ export async function updateAccount(ctx: Ctx) {
   if (ctx.body.active !== undefined) patch.active = Boolean(ctx.body.active);
   if (ctx.body.email !== undefined) patch.email = clean(ctx.body.email).toLowerCase();
   const updated = await ctx.store.update("profiles", id, patch);
+  const internalPatch: Row = {};
+  if (patch.role !== undefined) internalPatch.role = patch.role;
+  if (patch.email !== undefined) internalPatch.email = patch.email;
+  if (patch.display_name !== undefined) internalPatch.display_name = patch.display_name;
+  if (patch.active !== undefined) internalPatch.active = patch.active;
+  if (Object.keys(internalPatch).length) await syncInternalScope(ctx, id, internalPatch);
 
   if (Array.isArray(ctx.body.villageIds) && organizationId) {
-    await ctx.store.removeWhere("organization_service_areas", { eq: { organization_id: organizationId } });
     const ids = ctx.body.villageIds.map(String);
-    if (ids.length) {
-      await ctx.store.insertMany("organization_service_areas", ids.map(villageId => ({
-        organization_id: organizationId, village_id: villageId, created_at: nowIso()
-      })));
-    }
+    await addServiceAreas(ctx, organizationId, ids);
+    await syncInternalScope(ctx, id, { village_ids: ids });
   }
 
   if (ctx.body.password) {
     if (String(ctx.body.password).length < 8) throw badRequest("Kata sandi minimal 8 karakter");
-    if (supabaseEnabled) await setSupabasePassword(id, String(ctx.body.password));
+    if (ctx.store.kind === "supabase") await setSupabasePassword(id, String(ctx.body.password));
     else {
       const account = await ctx.store.one("internal_accounts", { eq: { profile_id: id } });
       if (!account) throw notFound("Akun internal tidak ditemukan");
@@ -299,34 +328,4 @@ export async function updateAccount(ctx: Ctx) {
   };
 }
 
-export async function rotateDeviceKey(ctx: Ctx) {
-  requireRole(ctx.session, ["PUSAT", "DESA"]);
-  const device = await ctx.store.one("devices", { eq: { id: param(ctx, "id") } });
-  if (!device) throw notFound("Perangkat tidak ditemukan");
-  if (ctx.session.role === "DESA") {
-    const village = String(device.village_id ?? "");
-    if (!ctx.session.villageIds?.includes(village)) throw forbidden("Perangkat di luar kewenangan Anda");
-  }
-  const key = newDeviceKey();
-  await ctx.store.update("devices", device.id, { auth_key_hash: sha256Hex(key), updated_at: nowIso() });
-  await record(ctx.store, {
-    actorId: ctx.session.profileId, action: "DEVICE_KEY_ROTATE", entityType: "devices",
-    entityId: String(device.id), summary: "Rotasi kunci perangkat " + device.id
-  });
-  return { deviceId: device.id, deviceKey: key, note: "Simpan sekali. Kunci lama langsung tidak berlaku." };
-}
 
-export async function rotateGatewayKey(ctx: Ctx) {
-  requireRole(ctx.session, ["PUSAT"]);
-  const gateway = await ctx.store.one("gateways", { eq: { id: param(ctx, "id") } });
-  if (!gateway) throw notFound("Gateway tidak ditemukan");
-  const key = newGatewayKey();
-  await ctx.store.update("gateways", gateway.id, { auth_key_hash: sha256Hex(key), updated_at: nowIso() });
-  await record(ctx.store, {
-    actorId: ctx.session.profileId, action: "GATEWAY_KEY_ROTATE", entityType: "gateways",
-    entityId: String(gateway.id), summary: "Rotasi kunci gateway " + gateway.gateway_code
-  });
-  return { gatewayId: gateway.id, gatewayCode: gateway.gateway_code, gatewayKey: key };
-}
-
-export { nowMs };

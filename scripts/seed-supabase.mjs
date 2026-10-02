@@ -20,6 +20,7 @@
  *  - internal_accounts hanya dipakai mode memori, dilewati di sini.
  */
 
+import { randomBytes } from "node:crypto";
 import { buildDemoData, DEMO_ACCOUNTS } from "../backend/dist/seed.js";
 import { config } from "../backend/dist/config.js";
 
@@ -88,13 +89,21 @@ async function listAuthUsers() {
   return data.users ?? [];
 }
 
+// Kata sandi demo di source bersifat publik. Untuk Supabase dibuat acak, kecuali SEED_DEMO_PASSWORDS=true.
+const generated = new Map();
+const passwordFor = account => {
+  if (process.env.SEED_DEMO_PASSWORDS === "true") return account.password;
+  if (!generated.has(account.email)) generated.set(account.email, randomBytes(12).toString("base64url") + "A1!");
+  return generated.get(account.email);
+};
+
 async function createAuthUser(account) {
   const response = await fetch(`${config.supabaseUrl}/auth/v1/admin/users`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify({
       email: account.email,
-      password: account.password,
+      password: passwordFor(account),
       email_confirm: true,
       user_metadata: { display_name: account.displayName, title: account.title, role: account.role }
     })
@@ -192,11 +201,11 @@ async function main() {
   report(failed, written);
   console.log("\nAKUN DEMO (password awal, ganti setelah login pertama):");
   for (const account of DEMO_ACCOUNTS) {
-    console.log(`  ${account.email.padEnd(30)} ${account.role.padEnd(7)} ${account.password}`);
+    console.log(`  ${account.email.padEnd(30)} ${account.role.padEnd(7)} ${passwordFor(account)}`);
   }
   console.log("\nUji login:");
   for (const account of DEMO_ACCOUNTS) {
-    console.log(`  curl -s -X POST http://localhost:3000/api/auth/login -H "Content-Type: application/json" -d '{"email":"${account.email}","password":"${account.password}"}'`);
+    console.log(`  curl -s -X POST http://localhost:3000/api/auth/login -H "Content-Type: application/json" -d '{"email":"${account.email}","password":"<password di atas>"}'`);
   }
 }
 

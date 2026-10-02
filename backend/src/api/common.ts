@@ -83,6 +83,12 @@ export const scopedQuery = (session: Session, column = "village_id", extra: Quer
   return scoped;
 };
 
+/** Menggabungkan filter eq opsional ke dalam satu objek (tanpa saling menimpa). */
+export const eqFilter = (...filters: Array<Record<string, unknown> | null | undefined>): { eq?: Record<string, unknown> } => {
+  const eq = Object.assign({}, ...filters.filter(Boolean));
+  return Object.keys(eq).length ? { eq } : {};
+};
+
 export const visibleVillageIds = (session: Session): string[] | null => scopeIds(session);
 
 export function parsePaging(query: URLSearchParams, max: number) {

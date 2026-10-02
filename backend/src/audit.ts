@@ -1,5 +1,5 @@
-import { config, supabaseEnabled } from "./config.js";
-import { nowIso, randomToken } from "./lib.js";
+import { config } from "./config.js";
+import { nowIso, uuid } from "./lib.js";
 import type { Row, Session } from "./types.js";
 import type { Store } from "./store.js";
 
@@ -33,12 +33,10 @@ export async function record(store: Store, input: AuditInput): Promise<void> {
   };
   ring.unshift({ ...entry, at: entry.created_at as string });
   if (ring.length > RING_LIMIT) ring.pop();
-  if (supabaseEnabled) {
-    try {
-      await store.insert("audit_logs", entry);
-    } catch (error) {
-      console.warn("[audit] gagal menyimpan audit log:", (error as Error).message);
-    }
+  try {
+    await store.insert("audit_logs", entry);
+  } catch (error) {
+    console.warn("[audit] gagal menyimpan audit log:", (error as Error).message);
   }
 }
 
@@ -52,7 +50,7 @@ export interface NotifyInput {
   session: Session | null;
   incidentId?: string | null;
   residentId?: string | null;
-  channel: "PUSH" | "SMS" | "WHATSAPP" | "EMAIL";
+  channel: "IN_APP" | "PUSH" | "SMS" | "WHATSAPP" | "EMAIL";
   destination: string;
   templateCode: string;
   body: string;
@@ -67,66 +65,56 @@ export interface NotifyResult {
 }
 
 /**
- * Tulis antrean notifikasi. Pengiriman nyata memerlukan kredensial FCM/Twilio
- * pada .env; tanpa itu antrean tetap dicatat agar bisa diproses manual.
+ * Tulis antrean notifikasi. IN_APP cukup disimpan (dibaca dari dashboard). Pengiriman nyata untuk SMS
+ * memerlukan kredensial Twilio; PUSH (FCM HTTP v1) dan EMAIL belum diintegrasikan sehingga tetap antre.
  */
 export async function notify(store: Store, input: NotifyInput): Promise<NotifyResult> {
-  const notificationId = randomToken(12);
-  const providerKey = input.channel === "PUSH" ? config.fcmServerKey
-    : input.channel === "SMS" || input.channel === "WHATSAPP" ? config.twilioAuthToken
-    : "";
-  const provider = input.channel === "PUSH" ? "fcm" : input.channel === "EMAIL" ? "smtp" : "twilio";
+  const notificationId = uuid();
+  const provider = input.channel === "IN_APP" ? "in-app" : input.channel === "PUSH" ? "fcm" : input.channel === "EMAIL" ? "smtp" : "twilio";
 
-  await store.insert("notifications", {
-    id: notificationId,
-    profile_id: input.session?.profileId ?? null,
-    incident_id: input.incidentId ?? null,
-    channel: input.channel,
-    title: input.templateCode,
-    body: input.body,
-    destination: input.destination,
-    template_code: input.templateCode,
-    status: "QUEUED",
-    created_at: nowIso()
-  }).catch(error => console.warn("[notify] gagal membuat antrean:", (error as Error).message));
+  try {
+    await store.insert("notifications", {
+      id: notificationId,
+      profile_id: null,
+      village_id: input.villageId ?? null,
+      resident_id: input.residentId ?? null,
+      incident_id: input.incidentId ?? null,
+      channel: input.channel === "WHATSAPP" ? "SMS" : input.channel,
+      title: input.templateCode,
+      body: input.body,
+      destination: input.destination,
+      template_code: input.templateCode,
+      status: "QUEUED",
+      created_at: nowIso()
+    });
+  } catch (error) {
+    console.warn("[notify] gagal membuat antrean:", (error as Error).message);
+    return { queued: false, provider, detail: "Antrean notifikasi gagal dibuat", notificationId: null };
+  }
 
-  if (!providerKey) {
+  if (provider === "in-app") return { queued: true, provider, detail: "Notifikasi dalam aplikasi dibuat.", notificationId };
+  if (provider !== "twilio" || !config.twilioAuthToken || !config.twilioAccountSid) {
     return {
       queued: true,
       provider,
-      detail: `Antrean dibuat. Kredensial ${provider.toUpperCase()} belum diatur, sehingga pesan belum dikirim.`,
+      detail: `Antrean dibuat. Pengiriman ${provider.toUpperCase()} belum aktif (kredensial/integrasi belum tersedia), pesan belum dikirim.`,
       notificationId
     };
   }
 
   try {
-    if (provider === "fcm") {
-      const response = await fetch("https://fcm.googleapis.com/fcm/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `key=${config.fcmServerKey}` },
-        body: JSON.stringify({ to: input.destination, notification: { title: "JAGA", body: input.body } })
-      });
-      if (!response.ok) throw new Error(`FCM ${response.status}`);
-      await store.update("notifications", { eq: { id: notificationId } }, { status: "SENT", sent_at: nowIso() });
-      return { queued: true, provider, detail: "Terkirim melalui FCM.", notificationId };
-    }
-    if (provider === "twilio") {
-      const auth = Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString("base64");
-      const form = new URLSearchParams({ To: input.destination, From: process.env.TWILIO_FROM_NUMBER ?? "", Body: input.body });
-      const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.twilioAccountSid}/Messages.json`, {
-        method: "POST",
-        headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString()
-      });
-      if (!response.ok) throw new Error(`Twilio ${response.status}`);
-      await store.update("notifications", { eq: { id: notificationId } }, { status: "SENT", sent_at: nowIso() });
-      return { queued: true, provider, detail: "Terkirim melalui Twilio.", notificationId };
-    }
-    throw new Error("Provider email belum diintegrasikan");
+    const auth = Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString("base64");
+    const form = new URLSearchParams({ To: input.destination, From: process.env.TWILIO_FROM_NUMBER ?? "", Body: input.body });
+    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.twilioAccountSid}/Messages.json`, {
+      method: "POST",
+      headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: form.toString()
+    });
+    if (!response.ok) throw new Error(`Twilio ${response.status}`);
+    await store.update("notifications", notificationId, { status: "SENT", sent_at: nowIso() }).catch(() => undefined);
+    return { queued: true, provider, detail: "Terkirim melalui Twilio.", notificationId };
   } catch (error) {
-    const message = (error as Error).message;
-    await store.update("notifications", { eq: { id: notificationId } }, { status: "FAILED" }).catch(() => undefined);
-    return { queued: false, provider, detail: `Pengiriman gagal: ${message}`, notificationId };
+    await store.update("notifications", notificationId, { status: "FAILED" }).catch(() => undefined);
+    return { queued: false, provider, detail: `Pengiriman gagal: ${(error as Error).message}`, notificationId };
   }
 }
-

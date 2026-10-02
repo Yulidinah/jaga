@@ -1,5 +1,6 @@
-import { config, supabaseEnabled } from "../config.js";
+import { config } from "../config.js";
 import { recentAudit } from "../audit.js";
+import { forbidden } from "../lib.js";
 import { Router } from "../router.js";
 import * as auth from "./auth-api.js";
 import * as residents from "./residents-api.js";
@@ -16,14 +17,14 @@ export function buildRouter(): Router {
   const router = new Router();
 
   /* ------------------------------------------------------------- Sistem */
-  router.get("/api/health", async () => ({
+  router.get("/api/health", async ctx => ({
     status: "ok",
-    storage: supabaseEnabled ? "supabase" : "memory",
+    storage: ctx.store.kind,
     serverTime: new Date().toISOString()
   }), { public: true });
 
-  router.get("/api/config", async () => ({
-    storage: supabaseEnabled ? "supabase" : "memory",
+  router.get("/api/config", async ctx => ({
+    storage: ctx.store.kind,
     devRoleHeaderEnabled: config.devRoleHeader,
     mqttConfigured: Boolean(config.mqttUrl && config.mqttUsername),
     pushConfigured: Boolean(config.fcmServerKey),
@@ -105,6 +106,7 @@ export function buildRouter(): Router {
 
   /* ---------------------------------------------------- Endpoint perangkat */
   router.post("/api/device/telemetry", devices.ingestTelemetry, { public: true, status: 202 });
+  router.post("/api/device/sos", devices.deviceSos, { public: true, status: 201 });
   router.get("/api/device/location", devices.deviceLocation, { public: true });
   router.get("/api/device/inbox", devices.deviceInbox, { public: true });
   router.post("/api/device/receipts/:receiptId", alerts.acknowledgeAlert, { public: true });
@@ -139,7 +141,10 @@ export function buildRouter(): Router {
   router.get("/api/dashboard/safety", dashboard.safetySummary);
   router.get("/api/dashboard/feed", dashboard.activityFeed);
   router.get("/api/dashboard/resident/:id", dashboard.residentSnapshot);
-  router.get("/api/audit/recent", async () => recentAudit(100));
+  router.get("/api/audit/recent", async ctx => {
+    if (ctx.session.role !== "PUSAT") throw forbidden("Log audit lintas wilayah hanya untuk JAGA Pusat");
+    return recentAudit(100).map(({ before_data: _before, after_data: _after, ip_address: _ip, user_agent: _agent, ...entry }) => entry);
+  });
 
   return router;
 }

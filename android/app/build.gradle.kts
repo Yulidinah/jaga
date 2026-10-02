@@ -14,9 +14,15 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        // Alamat backend: emulator Android mengakses komputer host lewat 10.0.2.2.
+        // Untuk perangkat fisik/produksi, ganti dengan alamat HTTPS backend.
+        buildConfigField("String", "API_BASE", "\"http://10.0.2.2:3000/api\"")
     }
 
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 

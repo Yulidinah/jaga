@@ -3,7 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { buildRouter } from "./api/index.js";
 import { authenticateDevice, authenticateGateway, resolveSession, usingEphemeralSessionSecret } from "./auth.js";
-import { config, projectRoot, supabaseEnabled } from "./config.js";
+import { config, projectRoot } from "./config.js";
 import { HttpError, json, readBody } from "./lib.js";
 import { addSubscriber, publish } from "./realtime.js";
 import { createStore } from "./store-boot.js";
@@ -47,6 +47,7 @@ const STATIC_FILES: Record<string, string> = {
   "/styles.css": "styles.css",
   "/auth.css": "auth.css",
   "/manifest.webmanifest": "manifest.webmanifest",
+  "/icon.svg": "icon.svg",
   "/service-worker.js": "service-worker.js"
 };
 
@@ -101,11 +102,11 @@ const serveStatic = async (res: ServerResponse, pathname: string): Promise<boole
 
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' https://unpkg.com",
-  "style-src 'self' 'unsafe-inline' https://unpkg.com",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data: https://*.tile.openstreetmap.org https://tile.openstreetmap.org",
   "connect-src 'self'",
-  "font-src 'self' data:",
+  "font-src 'self' data: https://fonts.gstatic.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -114,10 +115,13 @@ const CSP = [
 
 /* ------------------------------------------------------------ Server */
 
-const store: Store = await createStore();
+const store: Store = await createStore().catch(error => {
+  console.error(`[jaga] ${(error as Error).message}`);
+  process.exit(1);
+});
 const router = buildRouter();
 
-const DEVICE_ROUTES = ["/api/device/telemetry", "/api/device/location", "/api/device/inbox", "/api/device/receipts/"];
+const DEVICE_ROUTES = ["/api/device/telemetry", "/api/device/location", "/api/device/inbox", "/api/device/sos", "/api/device/receipts/"];
 
 const securityHeaders = (res: ServerResponse) => {
   res.setHeader("x-content-type-options", "nosniff");
@@ -137,7 +141,7 @@ const sendError = (res: ServerResponse, error: unknown) => {
   json(res, 500, { error: "Terjadi kesalahan pada server" });
 };
 
-const handleStream = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
+const handleStream = async (req: IncomingMessage, res: ServerResponse) => {
   const session = await resolveSession(store, req);
   if (!session) throw new HttpError(401, "Sesi tidak valid atau sudah berakhir");
   res.writeHead(200, {
@@ -157,7 +161,8 @@ const handleStream = async (req: IncomingMessage, res: ServerResponse, url: URL)
 const handleDeviceRequest = async (req: IncomingMessage, url: URL) => {
   const method = (req.method ?? "GET").toUpperCase();
   const body = method === "GET" ? {} : await readBody(req, 64 * 1024);
-  const gateway = await authenticateGateway(store, req, url);
+  // Kunci gateway bersifat opsional: perangkat yang terhubung langsung tidak memakai gateway.
+  const gateway = req.headers["x-jaga-gateway-key"] ? await authenticateGateway(store, req, url) : undefined;
   const deviceAuth = await authenticateDevice(store, req, url);
   return { body, gateway, deviceAuth, device: deviceAuth.device };
 };
@@ -169,11 +174,11 @@ const server = createServer(async (req, res) => {
 
   try {
     if (url.pathname === "/api/stream" && method === "GET") {
-      await handleStream(req, res, url);
+      await handleStream(req, res);
       return;
     }
 
-    if (DEVICE_ROUTES.some(route => url.pathname === route || url.pathname.startsWith(route))) {
+    if (DEVICE_ROUTES.some(route => url.pathname === route || (route.endsWith("/") && url.pathname.startsWith(route)))) {
       const extra = await handleDeviceRequest(req, url);
       const session = (await resolveSession(store, req)) ?? deviceSession(extra.device);
       await router.handle(req, res, store, () => Promise.resolve(session), { extra });
@@ -212,14 +217,14 @@ const deviceSession = (device: Row): Session => ({
 
 server.listen(config.port, () => {
   console.log(`[jaga] server berjalan di http://localhost:${config.port}`);
-  console.log(`[jaga] penyimpanan: ${supabaseEnabled ? "Supabase" : "memori (data demo)"}`);
+  console.log(`[jaga] penyimpanan: ${store.kind === "supabase" ? "Supabase" : "memori (data demo)"}`);
   if (usingEphemeralSessionSecret) {
     console.warn("[jaga] SESSION_SECRET belum disetel, sesi akan berakhir setiap restart.");
   }
   if (config.devRoleHeader) {
     console.warn("[jaga] JAGA_DEV_ROLE_HEADER aktif. Jangan pakai di lingkungan produksi.");
   }
-  publish("connected", { storage: supabaseEnabled ? "supabase" : "memory" });
+  publish("connected", { storage: store.kind });
 });
 
 const shutdown = (signal: string) => {

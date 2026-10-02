@@ -8,7 +8,8 @@
     "build": "tsc -p backend/tsconfig.json",
     "start": "node --env-file-if-exists=.env backend/dist/server.js",
     "dev": "npm run build && node --env-file=.env backend/dist/server.js",
-    "check": "tsc -p backend/tsconfig.json --noEmit"
+    "check": "tsc -p backend/tsconfig.json --noEmit",
+    "smoke": "node scripts/smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

@@ -1,6 +1,7 @@
 import { record } from "../audit.js";
 import { assertVillageAccess, requireRole } from "../auth.js";
 import { accessProfile, estimateAlternativeRoute, estimateRoute, isValidPoint, riskBand } from "../geo.js";
+import { eqFilter } from "./common.js";
 import {
   badRequest, clean, conflict, forbidden, indexBy, notFound, nowIso, oneOf, optionalText, text
 } from "../lib.js";
@@ -48,8 +49,7 @@ export async function listIncidents(ctx: Ctx) {
   const open = ctx.query.get("open");
 
   const rows = await ctx.store.list("incidents", scopedQuery(ctx.session, "village_id", {
-    ...(villageId ? { eq: { village_id: villageId } } : {}),
-    ...(statusFilter ? { eq: { status: statusFilter.toUpperCase() } } : {}),
+    ...eqFilter(villageId ? { village_id: villageId } : null, statusFilter ? { status: statusFilter.toUpperCase() } : null),
     order: { created_at: "desc" }
   }));
   const filtered = open === "true" ? rows.filter(row => !CLOSED.has(String(row.status))) : rows;
@@ -59,14 +59,16 @@ export async function listIncidents(ctx: Ctx) {
   const [recommendations, assignments, residents] = await Promise.all([
     ids.length ? ctx.store.list("priority_recommendations", { in: { incident_id: ids }, isNull: { superseded_at: true } }) : [],
     ids.length ? ctx.store.list("incident_assignments", { in: { incident_id: ids } }) : [],
-    rows.some(row => row.resident_id) ? ctx.store.list("residents", scopedQuery(ctx.session, "village_id", {})) : []
+    window.some(row => row.resident_id)
+      ? ctx.store.list("residents", { in: { id: window.filter(row => row.resident_id).map(row => String(row.resident_id)) } })
+      : []
   ]);
   const residentMap = indexBy(residents, row => String(row.id));
   const teamIds = Array.from(new Set(assignments.map(row => String(row.team_id))));
   const teams = teamIds.length ? await ctx.store.list("rescue_teams", { in: { id: teamIds } }) : [];
   const teamMap = indexBy(teams, row => String(row.id));
   const overrides = recommendations.length
-    ? await ctx.store.list("priority_overrides", { in: { incident_id: recommendations.map(row => String(row.incident_id)) } })
+    ? await ctx.store.list("priority_overrides", { in: { recommendation_id: recommendations.map(row => String(row.id)) } })
     : [];
   const latestOverride = new Map<string, Row>();
   for (const row of overrides) {
@@ -205,13 +207,13 @@ export async function createSos(ctx: Ctx) {
     device_id: optionalText(body.deviceId, "Perangkat"),
     disaster_type: optionalText(body.disasterType, "Jenis bencana", 80) ?? "LAINNYA",
     severity: body.severity ? oneOf(body.severity, SEVERITIES, "Tingkat kewaspadaan") : "WASPADA",
-    affected_count: body.affectedCount ? Number(body.affectedCount) : 1,
+    affected_count: Math.max(1, Math.trunc(Number(body.affectedCount)) || 1),
     owner_name: ownerName,
     latitude,
     longitude,
     status: "NEW",
     description: optionalText(body.description, "Keterangan", 2000),
-    source: "MANUAL",
+    source: ctx.device ? String(body.source ?? "DEVICE") : "MANUAL",
     created_at: nowIso(),
     updated_at: nowIso()
   });
@@ -360,26 +362,32 @@ async function collectFactors(store: Ctx["store"], incident: Row) {
     { key: "terrain_isolation", value: accessProfile(village.access_notes).difficulty, source: "PROFILE" as const, note: String(village.access_notes ?? "") }
   ] : [];
 
-  return mergeFactors(profile, villageFactors, incidentFactors(incident, telemetry), assessmentFactors(withFactors));
+  const device = incident.device_id ? await store.one("devices", { eq: { id: String(incident.device_id) } }) : null;
+  return mergeFactors(profile, villageFactors, incidentFactors(incident, telemetry, device), assessmentFactors(withFactors));
 }
 
 export async function calculateRecommendation(store: Ctx["store"], actorId: string | null, incidentId: string, options: { persist?: boolean } = {}) {
   const incident = await store.one("incidents", { eq: { id: incidentId } });
   if (!incident) throw notFound("Insiden tidak ditemukan");
-  const { ruleSet, rules } = await activeRuleSet(store, optionalText(incident.disaster_type, "Jenis"));
+  const { ruleSet, rules, bands, fallback } = await activeRuleSet(store, optionalText(incident.disaster_type, "Jenis"));
 
   const factors = await collectFactors(store, incident);
-  const overrides = await store.list("priority_overrides", { eq: { incident_id: incidentId } });
+  // Override hanya berlaku untuk rekomendasi yang ia ubah. Setelah penilaian baru dan perhitungan ulang,
+  // sistem menampilkan hasil terbaru; override lama tetap tersimpan sebagai riwayat.
+  const current = await store.one("priority_recommendations", { eq: { incident_id: incidentId }, isNull: { superseded_at: true } });
+  const overrides = current ? await store.list("priority_overrides", { eq: { recommendation_id: String(current.id) } }) : [];
   const lastOverride = overrides.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] ?? null;
   const result = recommend({
     ruleSet,
     rules,
+    bands,
     factors,
     overrideLevel: lastOverride ? (String(lastOverride.selected_level) as RecommendationLevel) : null,
     overrideReason: lastOverride ? String(lastOverride.reason) : null
   });
 
-  if (!options.persist) return { ...result, factors };
+  const note = fallback ? { ruleSetFallback: true, ruleSetNote: `Tidak ada rule set aktif untuk jenis bencana ini; memakai ${ruleSet.name} v${ruleSet.version}. Petugas perlu memeriksa.` } : { ruleSetFallback: false };
+  if (!options.persist) return { ...result, ...note, factors };
 
   const assessment = await store.one("incident_assessments", { eq: { incident_id: incidentId }, order: { observed_at: "desc" } });
   if (!assessment) throw badRequest("Buat penilaian lapangan terlebih dahulu sebelum menghitung rekomendasi");
@@ -390,13 +398,13 @@ export async function calculateRecommendation(store: Ctx["store"], actorId: stri
     assessment_id: assessment.id,
     rule_set_id: String(ruleSet.id),
     score: result.score,
-    suggested_level: result.suggestedLevel,
+    suggested_level: result.systemLevel,
     reasons: result.reasons,
     data_completeness: result.dataCompleteness,
     calculated_at: nowIso()
   });
   void actorId;
-  return { ...result, factors, saved };
+  return { ...result, ...note, factors, saved };
 }
 
 export async function recalculateRecommendation(ctx: Ctx) {
@@ -415,7 +423,7 @@ export async function previewRecommendation(ctx: Ctx) {
 }
 
 export async function overrideRecommendation(ctx: Ctx) {
-  requireRole(ctx.session, ["PUSAT", "DESA"], "Hanya pusat atau desa yang dapat mengubah level prioritas");
+  requireRole(ctx.session, ["PUSAT", "DESA", "RESCUE"], "Peran Anda tidak dapat mengubah level prioritas");
   const incident = await ctx.store.one("incidents", { eq: { id: param(ctx, "id") } });
   if (!incident) throw notFound("Insiden tidak ditemukan");
   assertVillageAccess(ctx.session, incident.village_id);
@@ -460,10 +468,12 @@ export async function planRoutes(ctx: Ctx) {
     ctx.store.list("evacuation_shelters", { eq: { village_id: villageId } })
   ]);
 
-  const accessNotes = optionalText(ctx.body.accessNotes, "Catatan akses") ?? optionalText(incident.village_access_notes, "Catatan akses") ?? null;
-  const target = ctx.body.shelterId
-    ? await shelterPoint(ctx, String(ctx.body.shelterId))
-    : from;
+  const accessNotes = optionalText(ctx.query.get("accessNotes"), "Catatan akses") ?? optionalText(incident.village_access_notes, "Catatan akses") ?? null;
+  const shelterId = clean(ctx.query.get("shelterId"));
+  const nearest = shelters.find(item => item.latitude !== null && item.longitude !== null);
+  const target = shelterId
+    ? await shelterPoint(ctx, shelterId)
+    : nearest ? { latitude: Number(nearest.latitude), longitude: Number(nearest.longitude) } : from;
   const options = { from, to: target, hazards: zones, accessNotes };
   const fastest = estimateRoute(options);
   const safest = estimateAlternativeRoute(options, "aman");
@@ -516,6 +526,10 @@ export async function saveRoute(ctx: Ctx) {
   assertVillageAccess(ctx.session, incident.village_id);
   const points = Array.isArray(ctx.body.path) ? ctx.body.path : [];
   if (points.length < 2) throw badRequest("Rute membutuhkan minimal dua titik");
+  if (points.length > 500) throw badRequest("Rute maksimal 500 titik");
+  if (!points.every((point: Row) => isValidPoint({ latitude: Number(point.latitude), longitude: Number(point.longitude) }))) {
+    throw badRequest("Koordinat titik rute tidak valid");
+  }
   const line = points.map((point: Row) => `${Number(point.longitude)} ${Number(point.latitude)}`).join(",");
   const route = await ctx.store.insert("evacuation_routes", {
     incident_id: param(ctx, "id"),
@@ -524,7 +538,7 @@ export async function saveRoute(ctx: Ctx) {
     path_wkt: `SRID=4326;LINESTRING(${line})`,
     distance_meters: Number(ctx.body.distanceMeters ?? 0),
     estimated_seconds: Number(ctx.body.estimatedSeconds ?? 0),
-    risk_score: Math.min(5, Math.max(1, Number(ctx.body.riskScore ?? 2))),
+    risk_score: Math.min(5, Math.max(1, Math.round(Number(ctx.body.riskScore ?? 2)) || 2)),
     notes: optionalText(ctx.body.notes, "Catatan", 1000),
     created_at: nowIso()
   });

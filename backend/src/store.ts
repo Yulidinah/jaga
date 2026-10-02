@@ -95,3 +95,12 @@ export const identityTables = new Set(
     .filter(([, kind]) => kind === "identity")
     .map(([table]) => table)
 );
+
+/** Tabel yang punya kolom created_at / updated_at di skema Supabase (migrasi 001 + 002). */
+export const HAS_CREATED_AT = new Set([
+  "villages", "hamlets", "organizations", "profiles", "residents", "devices", "gateways", "incidents",
+  "incident_status_history", "priority_rule_sets", "priority_rules", "incident_assessments",
+  "priority_recommendations", "priority_overrides", "rescue_teams", "evacuation_routes", "alert_commands",
+  "notifications", "attachments", "audit_logs", "sync_operations", "hazard_zones", "priority_thresholds"
+]);
+export const HAS_UPDATED_AT = new Set(["profiles", "residents", "incidents", "devices", "gateways", "rescue_teams"]);

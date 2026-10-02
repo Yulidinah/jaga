@@ -47,7 +47,7 @@ export function destination(origin: GeoPoint, distanceMeters: number, angleDeg: 
 export function polylineBetween(from: GeoPoint, to: GeoPoint, bendDegrees = 18): GeoPoint[] {
   const total = haversine(from, to);
   const direct = bearing(from, to);
-  const side = ((from.latitude * 7919 + from.longitude * 104729) % 2 === 0 ? 1 : -1);
+  const side = Math.round((from.latitude * 7919 + from.longitude * 104729) * 1000) % 2 === 0 ? 1 : -1;
   const middle = destination(from, total * 0.5, direct + side * bendDegrees);
   return [from, middle, to];
 }
@@ -58,7 +58,7 @@ const ACCESS_KEYWORDS: Array<{ pattern: RegExp; difficulty: number; label: strin
   { pattern: /tangga/i, difficulty: 5, label: "Ada tangga", speedKmh: 2.5 },
   { pattern: /sempit|narrow/i, difficulty: 4, label: "Jalan sempit", speedKmh: 5 },
   { pattern: /jembatan|sambungan|gubuk|cevak/i, difficulty: 4, label: "Akses lemah melewati jembatan penghubung", speedKmh: 5 },
-  { pattern: /banjir|genangan|banjiran/i, difficulty: 3, label: "Ruas rawan genangan", speedKmh: 7 },
+  { pattern: /(?<!tidak |bebas |non[- ]?)(banjir|genangan|banjiran)/i, difficulty: 3, label: "Ruas rawan genangan", speedKmh: 7 },
   { pattern: /lumpur|tanah/i, difficulty: 3, label: "Permukaan tanah/lumpur", speedKmh: 7 },
   { pattern: /jalan desa|beton|paving|aspal baik/i, difficulty: 1, label: "Jalan desa terbuka", speedKmh: 18 }
 ];
@@ -90,15 +90,31 @@ export interface ZoneLike {
   active?: boolean;
 }
 
-export const isZoneActive = (zone: ZoneLike, at = new Date()) => {
-  if (zone.active === false) return false;
+/** Zona aktif bila tidak dinonaktifkan dan berada dalam rentang active_from/active_until. */
+export const isZoneActive = (zone: ZoneLike | Row, at = new Date()) => {
+  const row = zone as Row;
+  if (row.active === false) return false;
+  const from = row.active_from ? new Date(String(row.active_from)).getTime() : null;
+  const until = row.active_until ? new Date(String(row.active_until)).getTime() : null;
+  if (from !== null && !Number.isNaN(from) && at.getTime() < from) return false;
+  if (until !== null && !Number.isNaN(until) && at.getTime() > until) return false;
   return true;
 };
 
-export function distanceToZone(point: GeoPoint, zone: ZoneLike): number | null {
-  if (!isValidPoint(zone.center)) return null;
-  const distance = haversine(point, zone.center);
-  const radius = Number(zone.radiusMeters ?? 0);
+/** Pusat zona: mendukung bentuk { center } maupun kolom DB center_latitude/center_longitude. */
+const zoneCenter = (zone: ZoneLike | Row): GeoPoint | null => {
+  const row = zone as Row;
+  if (isValidPoint(row.center)) return row.center;
+  const point = { latitude: Number(row.center_latitude), longitude: Number(row.center_longitude) };
+  return row.center_latitude != null && row.center_longitude != null && isValidPoint(point) ? point : null;
+};
+
+export function distanceToZone(point: GeoPoint, zone: ZoneLike | Row): number | null {
+  const center = zoneCenter(zone);
+  if (!center) return null;
+  const distance = haversine(point, center);
+  const row = zone as Row;
+  const radius = Number(row.radius_meters ?? row.radiusMeters ?? 0);
   if (!radius) return distance;
   return distance - radius;
 }

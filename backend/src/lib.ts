@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, scrypt, scryptSync, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Row } from "./types.js";
 
@@ -19,6 +19,11 @@ export const notFound = (message = "Data tidak ditemukan") => new HttpError(404,
 export const conflict = (message: string, detail?: unknown) => new HttpError(409, message, detail);
 
 export function json(res: ServerResponse, status: number, body: unknown): void {
+  if (status === 204) {
+    res.writeHead(204, { "cache-control": "no-store" });
+    res.end();
+    return;
+  }
   const payload = JSON.stringify(body ?? null);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -64,13 +69,29 @@ export function hashPassword(password: string, salt = randomBytes(16).toString("
   return `scrypt$${salt}$${derived}`;
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
+/** Verifikasi tidak memblokir event loop (scrypt asinkron). */
+export function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [scheme, salt, expected] = stored.split("$");
-  if (scheme !== "scrypt" || !salt || !expected) return false;
-  const derived = scryptSync(password, salt, 64);
-  const target = Buffer.from(expected, "hex");
-  return derived.length === target.length && timingSafeEqual(derived, target);
+  if (scheme !== "scrypt" || !salt || !expected) return Promise.resolve(false);
+  return new Promise(resolve => {
+    scrypt(password, salt, 64, (error, derived) => {
+      if (error) return resolve(false);
+      const target = Buffer.from(expected, "hex");
+      resolve(derived.length === target.length && timingSafeEqual(derived, target));
+    });
+  });
 }
+
+/** Pembatas percobaan sederhana (per proses) untuk login. */
+const attempts = new Map<string, { count: number; first: number }>();
+export function checkRateLimit(key: string, max = 8, windowMs = 15 * 60_000): void {
+  const now = Date.now();
+  const entry = attempts.get(key);
+  if (!entry || now - entry.first > windowMs) { attempts.set(key, { count: 1, first: now }); return; }
+  entry.count += 1;
+  if (entry.count > max) throw new HttpError(429, "Terlalu banyak percobaan masuk. Coba lagi beberapa menit lagi.");
+}
+export const resetRateLimit = (key: string) => { attempts.delete(key); };
 
 export function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a ?? "", "utf8");
@@ -141,7 +162,9 @@ export function parseCookies(header: string | undefined): Record<string, string>
     const index = part.indexOf("=");
     if (index < 0) continue;
     const key = part.slice(0, index).trim();
-    if (key) result[key] = decodeURIComponent(part.slice(index + 1).trim());
+    if (!key) continue;
+    const raw = part.slice(index + 1).trim();
+    try { result[key] = decodeURIComponent(raw); } catch { result[key] = raw; }
   }
   return result;
 }

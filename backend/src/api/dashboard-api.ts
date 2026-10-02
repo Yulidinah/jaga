@@ -1,6 +1,6 @@
-import { scopeIds } from "../auth.js";
+import { assertVillageAccess, scopeIds } from "../auth.js";
 import { accessProfile, riskBand } from "../geo.js";
-import { indexBy } from "../lib.js";
+import { indexBy, notFound } from "../lib.js";
 import { recentAudit } from "../audit.js";
 import { subscriberCount } from "../realtime.js";
 import { LEVEL_LABEL } from "../recommend.js";
@@ -14,12 +14,22 @@ const CLOSED = new Set(["SAFE", "CANCELLED", "CLOSED"]);
 const uniqueIds = (rows: Row[], column = "resident_id") =>
   Array.from(new Set(rows.map(row => String(row[column])).filter(Boolean)));
 
+/** Tim yang boleh dilihat: PUSAT semua; RESCUE organisasinya; DESA yang bermarkas di desanya. */
+async function visibleTeams(ctx: Ctx): Promise<Row[]> {
+  const teams = await ctx.store.list("rescue_teams", {});
+  if (ctx.session.role === "PUSAT") return teams;
+  const ids = scopeIds(ctx.session) ?? [];
+  return teams.filter(team =>
+    (ctx.session.role === "RESCUE" && ctx.session.organizationId && String(team.organization_id) === ctx.session.organizationId)
+    || (team.home_village_id && ids.includes(String(team.home_village_id))));
+}
+
 export async function overview(ctx: Ctx) {
   const ids = scopeIds(ctx.session);
   const [residents, incidents, teams, devices, alerts, villages, zones, shelters, gateways] = await Promise.all([
     ctx.store.list("residents", scopedQuery(ctx.session, "village_id", { eq: { active: true } })),
     ctx.store.list("incidents", scopedQuery(ctx.session, "village_id", {})),
-    ctx.store.list("rescue_teams", {}),
+    visibleTeams(ctx),
     ctx.store.list("devices", scopedQuery(ctx.session, "village_id", {})),
     ctx.store.list("alert_commands", scopedQuery(ctx.session, "village_id", {})),
     ctx.store.list("villages", ids === null ? {} : ids.length ? { in: { id: ids } } : { in: { id: ["__tidak_ada__"] } }),
@@ -29,8 +39,11 @@ export async function overview(ctx: Ctx) {
   ]);
 
   const activeIncidents = incidents.filter(row => !CLOSED.has(String(row.status)));
-  const residentIds = uniqueIds(incidents);
-  const assignments = await ctx.store.list("device_assignments", { in: { resident_id: residentIds }, isNull: { unassigned_at: true } }).catch(() => [] as Row[]);
+  // Perangkat terpasang dan kerentanan dihitung untuk seluruh warga dalam lingkup, bukan hanya warga yang punya insiden.
+  const residentIds = residents.map(row => String(row.id));
+  const assignments = residentIds.length
+    ? await ctx.store.list("device_assignments", { in: { resident_id: residentIds }, isNull: { unassigned_at: true } })
+    : [];
   const vulns = residentIds.length ? await ctx.store.list("resident_vulnerabilities", { in: { resident_id: residentIds } }) : [];
   const types = await ctx.store.list("vulnerability_types", {});
   const typeMap = indexBy(types, row => String(row.id));
@@ -74,8 +87,8 @@ export async function overview(ctx: Ctx) {
       devicesLowBattery: lowBattery.length,
       devicesUnassigned: unassignedDevices.length,
       gatewaysOnline: gateways.filter(row => row.online === true).length,
-      activeAlerts: alerts.filter(row => String(row.status) === "SENT").length,
-      hazardZones: zones.filter(row => row.active_until === null || String(row.active_until) > new Date().toISOString()).length,
+      activeAlerts: alerts.filter(row => ["QUEUED", "SENT"].includes(String(row.status)) && (!row.expires_at || String(row.expires_at) > new Date().toISOString())).length,
+      hazardZones: zones.filter(row => !row.active_until || String(row.active_until) > new Date().toISOString()).length,
       shelters: shelters.length,
       shelterCapacity: shelters.reduce((sum, row) => sum + Number(row.capacity ?? 0), 0),
       villages: villages.length
@@ -101,7 +114,7 @@ export async function mapData(ctx: Ctx) {
     ctx.store.list("incidents", scopedQuery(ctx.session, "village_id", {})),
     ctx.store.list("hazard_zones", scopedQuery(ctx.session, "village_id", {})),
     ctx.store.list("evacuation_shelters", scopedQuery(ctx.session, "village_id", {})),
-    ctx.store.list("rescue_teams", {}),
+    visibleTeams(ctx),
     ctx.store.list("gateways", scopedQuery(ctx.session, "village_id", {}))
   ]);
 
@@ -148,7 +161,7 @@ export async function mapData(ctx: Ctx) {
       battery: row.battery,
       online: row.online === true,
       status: row.status,
-      ownerName: row.owner_name,
+      ownerName: ctx.session.role === "RESCUE" ? null : row.owner_name,
       lastSeenAt: row.last_seen_at
     })),
     incidents: incidents.filter(row => !CLOSED.has(String(row.status))).map(row => ({
@@ -208,14 +221,14 @@ export async function mapData(ctx: Ctx) {
 
 /** Rekomendasi prioritas terkini untuk seluruh insiden aktif. */
 export async function priorityBoard(ctx: Ctx) {
-  const incidents = await ctx.store.list("incidents", scopedQuery(ctx.session, "village_id", { eq: { status: "NEW" } }));
+  const incidents = await ctx.store.list("incidents", scopedQuery(ctx.session, "village_id", {}));
   const active = incidents.filter(row => !CLOSED.has(String(row.status)));
   if (!active.length) return [];
   const incidentIds = active.map(row => String(row.id));
-  const [recommendations, overrides, residents] = await Promise.all([
-    ctx.store.list("priority_recommendations", { in: { incident_id: incidentIds }, isNull: { superseded_at: true } }),
-    ctx.store.list("priority_overrides", { in: { incident_id: incidentIds } }),
-    ctx.store.list("residents", scopedQuery(ctx.session, "village_id", {}))
+  const recommendations = await ctx.store.list("priority_recommendations", { in: { incident_id: incidentIds }, isNull: { superseded_at: true } });
+  const [overrides, residents] = await Promise.all([
+    recommendations.length ? ctx.store.list("priority_overrides", { in: { recommendation_id: recommendations.map(row => String(row.id)) } }) : [],
+    ctx.store.list("residents", { in: { id: active.filter(row => row.resident_id).map(row => String(row.resident_id)) } })
   ]);
   const residentMap = indexBy(residents, row => String(row.id));
   const latestOverride = new Map<string, Row>();
@@ -259,7 +272,7 @@ export async function safetySummary(ctx: Ctx) {
   const ids = residents.map(row => String(row.id));
   const [incidents, assignments, vulns] = await Promise.all([
     ids.length ? ctx.store.list("incidents", { in: { resident_id: ids } }) : [],
-    ctx.store.list("device_assignments", { in: { resident_id: ids }, isNull: { unassigned_at: true } }),
+    ids.length ? ctx.store.list("device_assignments", { in: { resident_id: ids }, isNull: { unassigned_at: true } }) : [],
     ids.length ? ctx.store.list("resident_vulnerabilities", { in: { resident_id: ids } }) : []
   ]);
   const types = await ctx.store.list("vulnerability_types", {});
@@ -270,12 +283,15 @@ export async function safetySummary(ctx: Ctx) {
       .map(vuln => String(vuln.resident_id))
   );
   const assigned = new Set(assignments.map(row => String(row.resident_id)));
-  const safeSet = new Set(
-    incidents.filter(row => ["SAFE", "EVACUATED"].includes(String(row.status))).map(row => String(row.resident_id))
-  );
-  const activeSet = new Set(
-    incidents.filter(row => !CLOSED.has(String(row.status))).map(row => String(row.resident_id))
-  );
+  // Kondisi warga mengikuti insiden terbarunya: insiden lama yang sudah SAFE tidak menutupi insiden aktif baru.
+  const latest = new Map<string, Row>();
+  for (const incident of incidents) {
+    const key = String(incident.resident_id);
+    const current = latest.get(key);
+    if (!current || String(incident.created_at) > String(current.created_at)) latest.set(key, incident);
+  }
+  const activeSet = new Set(Array.from(latest.entries()).filter(([, row]) => !CLOSED.has(String(row.status)) && row.status !== "EVACUATED").map(([key]) => key));
+  const safeSet = new Set(Array.from(latest.entries()).filter(([, row]) => ["SAFE", "EVACUATED"].includes(String(row.status))).map(([key]) => key));
 
   const safe = residents.filter(row => safeSet.has(String(row.id)));
   const inProgress = residents.filter(row => !safeSet.has(String(row.id)) && activeSet.has(String(row.id)));
@@ -303,7 +319,8 @@ export async function activityFeed(ctx: Ctx) {
   const history = incidents.length
     ? await ctx.store.list("incident_status_history", { in: { incident_id: incidents.map(row => String(row.id)) }, order: { created_at: "desc" }, limit: 40 })
     : [];
-  const audits = recentAudit(30).filter(entry => !entry.entity_type || entry.entity_type === "incidents");
+  // Ringkasan audit lintas wilayah hanya untuk PUSAT; peran lain memakai riwayat status insiden dalam lingkupnya.
+  const audits = ctx.session.role === "PUSAT" ? recentAudit(30).filter(entry => !entry.entity_type || entry.entity_type === "incidents") : [];
   return {
     incidents: incidents.map(row => ({
       id: row.id,
@@ -336,7 +353,8 @@ export async function activityFeed(ctx: Ctx) {
 
 export async function residentSnapshot(ctx: Ctx) {
   const profile = await loadSupportProfile(ctx.store, param(ctx, "id"));
-  if (!profile) return null;
+  if (!profile) throw notFound("Warga tidak ditemukan");
+  assertVillageAccess(ctx.session, profile.resident.village_id);
   return {
     residentId: param(ctx, "id"),
     fullName: profile.resident.full_name,

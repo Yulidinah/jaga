@@ -1,13 +1,13 @@
 import { record } from "../audit.js";
 import { assertVillageAccess, scopeIds } from "../auth.js";
 import {
-  badRequest, clean, conflict, forbidden, indexBy, notFound, nowIso, oneOf, optionalText, requireUuid, text
+  badRequest, clean, conflict, forbidden, indexBy, isUuid, notFound, nowIso, oneOf, optionalText, requireUuid, text
 } from "../lib.js";
 import { publish } from "../realtime.js";
 import { ageFrom, profileFactors } from "../recommend.js";
 import { param, type Ctx } from "../router.js";
 import type { Row } from "../types.js";
-import { loadSupportProfile, parsePaging, scopedQuery, searchText } from "./common.js";
+import { eqFilter, loadSupportProfile, parsePaging, scopedQuery, searchText } from "./common.js";
 
 const GENDERS = ["LAKI_LAKI", "PEREMPUAN", "LAINNYA"] as const;
 
@@ -96,8 +96,11 @@ export async function listResidents(ctx: Ctx) {
   const activeParam = ctx.query.get("active");
 
   const rows = await ctx.store.list("residents", scopedQuery(ctx.session, "village_id", {
-    ...(villageId ? { eq: { village_id: villageId } } : {}),
-    ...(activeParam === null ? {} : { eq: { active: activeParam !== "false" } }),
+    ...eqFilter(
+      villageId ? { village_id: villageId } : null,
+      // Default hanya warga aktif; ?active=false menampilkan yang dinonaktifkan, ?active=all menampilkan semuanya.
+      activeParam === "all" ? null : { active: activeParam === null ? true : activeParam !== "false" }
+    ),
     order: { full_name: "asc" }
   }));
 
@@ -138,6 +141,10 @@ export async function listResidents(ctx: Ctx) {
         evacuationNotes: row.evacuation_notes,
         active: row.active !== false,
         vulnerabilityCount: residentVulns.length,
+        vulnerabilities: residentVulns.map(vuln => {
+          const type = typeMap.get(String(vuln.vulnerability_type_id));
+          return { id: vuln.vulnerability_type_id, name: type?.name ?? null, category: type?.category ?? null, severity: vuln.severity ?? null };
+        }),
         vulnerabilityCategories: residentVulns
           .map(vuln => typeMap.get(String(vuln.vulnerability_type_id))?.category)
           .filter(Boolean),
@@ -160,6 +167,17 @@ export async function getResident(ctx: Ctx) {
   };
 }
 
+/** Tanggal lahir opsional dalam format YYYY-MM-DD, tidak di masa depan. */
+const parseBirthDate = (value: unknown): string | null => {
+  const raw = optionalText(value, "Tanggal lahir", 30);
+  if (!raw) return null;
+  const date = new Date(raw);
+  if (!/^\d{4}-\d{2}-\d{2}/.test(raw) || Number.isNaN(date.getTime()) || date.getTime() > Date.now()) {
+    throw badRequest("Tanggal lahir tidak valid (format YYYY-MM-DD, tidak boleh di masa depan)");
+  }
+  return raw.slice(0, 10);
+};
+
 export async function createResident(ctx: Ctx) {
   if (ctx.session.role === "RESCUE") throw forbidden("Tim rescue tidak dapat menambah warga");
   const body = ctx.body;
@@ -173,6 +191,8 @@ export async function createResident(ctx: Ctx) {
   if ((latitude === null) !== (longitude === null)) throw badRequest("Latitude dan longitude harus diisi bersama");
   if (latitude !== null && (Math.abs(latitude) > 90 || Math.abs(longitude as number) > 180)) throw badRequest("Koordinat di luar batas bumi");
 
+  if (body.consented !== true) throw badRequest("Persetujuan pendataan (consented) wajib diberikan oleh warga atau walinya");
+  const birthDate = parseBirthDate(body.birthDate);
   const hamletId = optionalText(body.hamletId, "Dusun");
   if (hamletId) {
     const hamlet = await ctx.store.one("hamlets", { eq: { id: hamletId } });
@@ -183,7 +203,7 @@ export async function createResident(ctx: Ctx) {
     village_id: villageId,
     hamlet_id: hamletId,
     full_name: text(body.fullName ?? body.full_name, "Nama lengkap", { max: 160 }),
-    birth_date: optionalText(body.birthDate, "Tanggal lahir", 30),
+    birth_date: birthDate,
     gender: body.gender ? oneOf(body.gender, GENDERS, "Jenis kelamin") : null,
     phone: optionalText(body.phone, "Telepon", 40),
     address: optionalText(body.address, "Alamat", 500),
@@ -199,6 +219,15 @@ export async function createResident(ctx: Ctx) {
     created_at: nowIso(),
     updated_at: nowIso()
   });
+  const codes = Array.isArray(body.vulnerabilityCodes) ? body.vulnerabilityCodes.map(String).slice(0, 20) : [];
+  if (codes.length) {
+    const types = await ctx.store.list("vulnerability_types", { in: { code: codes } });
+    if (types.length) {
+      await ctx.store.insertMany("resident_vulnerabilities", types.map(type => ({
+        resident_id: resident.id, vulnerability_type_id: type.id, severity: 3, verified_by: null
+      })));
+    }
+  }
   await record(ctx.store, {
     actorId: ctx.session.profileId, action: "RESIDENT_CREATE", entityType: "residents",
     entityId: String(resident.id), summary: `Menambah warga ${resident.full_name}`, after: resident
@@ -216,7 +245,7 @@ export async function updateResident(ctx: Ctx) {
   const body = ctx.body;
   const patch: Row = { updated_at: nowIso() };
   if (body.fullName !== undefined) patch.full_name = text(body.fullName, "Nama lengkap", { max: 160 });
-  if (body.birthDate !== undefined) patch.birth_date = optionalText(body.birthDate, "Tanggal lahir", 30);
+  if (body.birthDate !== undefined) patch.birth_date = parseBirthDate(body.birthDate);
   if (body.gender !== undefined) patch.gender = body.gender ? oneOf(body.gender, GENDERS, "Jenis kelamin") : null;
   if (body.phone !== undefined) patch.phone = optionalText(body.phone, "Telepon", 40);
   if (body.address !== undefined) patch.address = optionalText(body.address, "Alamat", 500);
@@ -234,6 +263,10 @@ export async function updateResident(ctx: Ctx) {
     }
     patch.latitude = latitude === null || latitude === "" ? null : Number(latitude);
     patch.longitude = longitude === null || longitude === "" ? null : Number(longitude);
+    if (patch.latitude !== null && (!Number.isFinite(patch.latitude) || !Number.isFinite(patch.longitude)
+      || Math.abs(patch.latitude) > 90 || Math.abs(patch.longitude) > 180)) {
+      throw badRequest("Koordinat di luar batas bumi");
+    }
   }
 
   const updated = await ctx.store.update("residents", param(ctx, "id"), patch);
@@ -254,9 +287,12 @@ export async function deleteResident(ctx: Ctx) {
   assertVillageAccess(ctx.session, existing.village_id, "Warga ini berada di luar kewenangan Anda");
 
   if (ctx.body.hard === true && ctx.session.role === "PUSAT") {
-    const open = await ctx.store.list("incidents", { eq: { resident_id: param(ctx, "id") } });
-    if (open.some(incident => !["SAFE", "CANCELLED", "CLOSED"].includes(String(incident.status)))) {
-      throw conflict("Masih ada insiden aktif. Tutup insiden sebelum menghapus warga secara permanen");
+    const related = await ctx.store.list("incidents", { eq: { resident_id: param(ctx, "id") } });
+    if (related.length) {
+      throw conflict("Warga memiliki riwayat insiden sehingga tidak dapat dihapus permanen. Nonaktifkan saja.");
+    }
+    if (await ctx.store.one("device_assignments", { eq: { resident_id: param(ctx, "id") } })) {
+      throw conflict("Warga masih memiliki riwayat pemasangan perangkat. Nonaktifkan saja.");
     }
     await ctx.store.remove("residents", param(ctx, "id"));
     await record(ctx.store, {
@@ -277,6 +313,7 @@ export async function deleteResident(ctx: Ctx) {
 /* ----------------------------------------------------- Kerentanan & kontak */
 
 export async function saveVulnerabilities(ctx: Ctx) {
+  forbidRescueEdit(ctx);
   const resident = await ctx.store.one("residents", { eq: { id: param(ctx, "id") } });
   if (!resident) throw notFound("Warga tidak ditemukan");
   assertVillageAccess(ctx.session, resident.village_id);
@@ -284,36 +321,49 @@ export async function saveVulnerabilities(ctx: Ctx) {
   if (!items.length) throw badRequest("Kirim minimal satu kelompok rentan");
   if (items.length > 20) throw badRequest("Maksimal 20 kelompok rentan per warga");
 
-  const typeIds = items.map(item => requireUuid(item.vulnerabilityTypeId ?? item.vulnerability_type_id, "Jenis kerentanan"));
+  const typeIds = Array.from(new Set(items.map(item => requireUuid(item.vulnerabilityTypeId ?? item.vulnerability_type_id, "Jenis kerentanan"))));
   const types = await ctx.store.list("vulnerability_types", { in: { id: typeIds } });
   const typeMap = indexBy(types, row => String(row.id));
   const missing = typeIds.filter(id => !typeMap.has(id));
   if (missing.length) throw badRequest("Jenis kerentanan tidak dikenal", { missing });
 
-  await ctx.store.removeWhere("resident_vulnerabilities", { eq: { resident_id: param(ctx, "id") } });
-  const rows = items.map((item, index) => {
+  // Satu baris per jenis (item terakhir menang) supaya upsert tidak menyentuh baris yang sama dua kali.
+  const byType = new Map<string, Row>();
+  for (const item of items) {
     const typeId = requireUuid(item.vulnerabilityTypeId ?? item.vulnerability_type_id, "Jenis kerentanan");
-    const severity = item.severity === undefined ? 3 : Math.min(5, Math.max(1, Number(item.severity) || 3));
-    return {
+    byType.set(typeId, {
       resident_id: param(ctx, "id"),
       vulnerability_type_id: typeId,
-      severity,
+      severity: item.severity === undefined ? 3 : Math.min(5, Math.max(1, Math.round(Number(item.severity)) || 3)),
       assistance_notes: optionalText(item.assistanceNotes ?? item.assistance_notes, "Catatan bantuan", 500),
-      verified_by: ctx.session.profileId,
-      verified_at: nowIso(),
-      _sort: index
-    };
-  });
+      verified_by: isUuid(ctx.session.profileId) ? ctx.session.profileId : null,
+      verified_at: nowIso()
+    });
+  }
+  const rows = Array.from(byType.values());
+  // Simpan dulu, hapus yang tidak dipilih belakangan: kegagalan simpan tidak menghilangkan data lama.
   const saved = await ctx.store.upsert("resident_vulnerabilities", rows, ["resident_id", "vulnerability_type_id"]);
+  const existing = await ctx.store.list("resident_vulnerabilities", { eq: { resident_id: param(ctx, "id") } });
+  for (const row of existing) {
+    if (!byType.has(String(row.vulnerability_type_id))) {
+      await ctx.store.removeWhere("resident_vulnerabilities", { eq: { resident_id: param(ctx, "id"), vulnerability_type_id: String(row.vulnerability_type_id) } });
+    }
+  }
   await record(ctx.store, {
     actorId: ctx.session.profileId, action: "RESIDENT_VULNERABILITY_SET", entityType: "residents",
     entityId: param(ctx, "id"), summary: `Memperbarui ${rows.length} kelompok rentan untuk ${resident.full_name}`
   });
   publish("resident.updated", { id: param(ctx, "id"), full_name: resident.full_name }, String(resident.village_id));
-  return saved.map((row, index) => ({ ...row, type: typeMap.get(String(rows[index]?.vulnerability_type_id)) ?? null }));
+  return saved.map(row => ({ ...row, type: typeMap.get(String(row.vulnerability_type_id)) ?? null }));
 }
 
+/** Mengubah data warga hanya untuk pusat/desa; Rescue hanya membaca. */
+const forbidRescueEdit = (ctx: Ctx) => {
+  if (ctx.session.role === "RESCUE") throw forbidden("Tim rescue tidak dapat mengubah data warga");
+};
+
 export async function addContact(ctx: Ctx) {
+  forbidRescueEdit(ctx);
   const resident = await ctx.store.one("residents", { eq: { id: param(ctx, "id") } });
   if (!resident) throw notFound("Warga tidak ditemukan");
   assertVillageAccess(ctx.session, resident.village_id);
@@ -337,10 +387,12 @@ export async function addContact(ctx: Ctx) {
 }
 
 export async function deleteContact(ctx: Ctx) {
-  const contact = await ctx.store.one("resident_contacts", { eq: { id: param(ctx, "contactId") } });
+  forbidRescueEdit(ctx);
+  const contact = await ctx.store.one("resident_contacts", { eq: { id: param(ctx, "contactId"), resident_id: param(ctx, "id") } });
   if (!contact) throw notFound("Kontak tidak ditemukan");
   const resident = await ctx.store.one("residents", { eq: { id: String(contact.resident_id) } });
-  if (resident) assertVillageAccess(ctx.session, resident.village_id);
+  if (!resident) throw notFound("Warga tidak ditemukan");
+  assertVillageAccess(ctx.session, resident.village_id);
   await ctx.store.remove("resident_contacts", param(ctx, "contactId"));
   await record(ctx.store, {
     actorId: ctx.session.profileId, action: "RESIDENT_CONTACT_REMOVE", entityType: "residents",
