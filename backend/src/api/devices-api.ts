@@ -1,6 +1,6 @@
 import { record } from "../audit.js";
 import { assertVillageAccess, newDeviceKey, newGatewayKey, requireRole } from "../auth.js";
-import { badRequest, clean, conflict, indexBy, notFound, nowIso, oneOf, optionalText, randomToken, requireUuid, sha256Hex, text } from "../lib.js";
+import { isOnline, badRequest, clean, conflict, indexBy, notFound, nowIso, oneOf, optionalText, randomToken, requireUuid, sha256Hex, text } from "../lib.js";
 import { publish } from "../realtime.js";
 import { param, type Ctx } from "../router.js";
 import type { DeviceStatus, Row } from "../types.js";
@@ -34,7 +34,7 @@ const deviceShape = (device: Row) => ({
   latitude: device.latitude,
   longitude: device.longitude,
   battery: device.battery,
-  online: device.online,
+  online: isOnline(device),
   lastSeenAt: device.last_seen_at,
   hasKey: Boolean(device.auth_key_hash)
 });
@@ -207,7 +207,7 @@ export async function listGateways(ctx: Ctx) {
     latitude: row.latitude,
     longitude: row.longitude,
     firmwareVersion: row.firmware_version,
-    online: row.online === true,
+    online: isOnline(row),
     lastSeenAt: row.last_seen_at,
     hasKey: Boolean(row.auth_key_hash)
   }));
@@ -334,7 +334,7 @@ export async function deviceInbox(ctx: Ctx) {
     residentId,
     villageId,
     villageCoordinates: villageId ? await villageCenter(ctx, villageId) : null,
-    activeDevices: devices.filter(item => item.online === true).map(item => ({ id: item.id, latitude: item.latitude, longitude: item.longitude })),
+    activeDevices: devices.filter(item => isOnline(item)).map(item => ({ id: item.id, latitude: item.latitude, longitude: item.longitude })),
     commands: openCommands.slice(0, 20).map(({ receipt, command }) => ({
       id: command.id, receiptId: receipt.id, severity: command.severity, message: command.message, expiresAt: command.expires_at
     })),

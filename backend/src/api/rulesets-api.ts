@@ -110,7 +110,7 @@ export async function saveRules(ctx: Ctx) {
   if (!items.length) throw badRequest("Kirim minimal satu aturan");
   if (items.length > 200) throw badRequest("Maksimal 200 aturan per rule set");
 
-  const known = new Set<string>([...REQUIRED_FACTORS, "age_group", "contact_count", "device_battery", "device_online", "mobility_limited", "communication_notes", "evacuation_notes", "lives_with_others", "severity_reported", "affected_count", "vulnerability_count"]);
+  const known = new Set<string>([...REQUIRED_FACTORS, "age_group", "contact_count", "device_battery", "device_online", "mobility_limited", "communication_notes", "evacuation_notes", "lives_with_others", "severity_reported", "affected_count", "vulnerability_count", "operation_water_level_cm", "is_disabled", "is_pregnant", "time_critical_medical", "vulnerability_codes", "has_active_sos"]);
   const seen = new Set<string>();
   const rows = items.map((item: Row, index: number) => {
     const factorKey = clean(item.factorKey ?? item.factor_key);
@@ -337,7 +337,13 @@ const FACTOR_NOTES: Record<string, string> = {
   distance_km: "Jarak lokasi dalam kilometer",
   is_night: "Peristiwa terjadi pada malam hari",
   device_battery: "Baterai perangkat warga",
-  device_online: "Perangkat warga sedang online"
+  device_online: "Perangkat warga sedang online",
+  operation_water_level_cm: "Tinggi air (cm) hasil pengamatan JAGA Desa pada operasi aktif",
+  evacuation_ability: "Kemampuan evakuasi mandiri: MANDIRI, PERLU_BANTUAN, atau TIDAK_BISA_SENDIRI",
+  time_critical_medical: "Ketergantungan medis yang tidak bisa ditunda (insulin, oksigen, dialisis, kehamilan mendekati persalinan)",
+  vulnerability_codes: "Kode jenis kerentanan warga (mis. TUNARUNGU, TUNANETRA)",
+  hazard_zone_risk: "Risiko zona bahaya aktif di lokasi rumah (0-5)",
+  has_active_sos: "Warga memiliki laporan SOS/insiden yang masih terbuka"
 };
 
 const FACTOR_EXAMPLES: Record<string, unknown> = {

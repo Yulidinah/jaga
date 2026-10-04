@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID, scrypt, scryptSync, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { config } from "./config.js";
 import type { Row } from "./types.js";
 
 export class HttpError extends Error {
@@ -99,6 +100,13 @@ export function safeEqual(a: string, b: string): boolean {
   if (left.length !== right.length) return false;
   return timingSafeEqual(left, right);
 }
+
+/** Online = pernah mengirim sinyal dan sinyal terakhir masih dalam batas waktu (bukan sekadar flag tersimpan). */
+export const isOnline = (row: Row | null | undefined, now = Date.now()): boolean => {
+  if (!row || row.online !== true) return false;
+  const seen = row.last_seen_at ? new Date(String(row.last_seen_at)).getTime() : NaN;
+  return Number.isFinite(seen) && now - seen <= config.deviceOfflineMinutes * 60_000;
+};
 
 export const clean = (value: unknown): string => String(value ?? "").trim();
 

@@ -18,7 +18,10 @@ export type EventType =
   | "recommendation.updated"
   | "rule_set.published"
   | "hazard.updated"
-  | "notification.created";
+  | "notification.created"
+  | "operation.opened"
+  | "operation.updated"
+  | "operation.closed";
 
 interface Subscriber {
   res: ServerResponse;

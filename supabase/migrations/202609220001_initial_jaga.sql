@@ -657,67 +657,6 @@ alter publication supabase_realtime add table public.alert_commands;
 alter publication supabase_realtime add table public.command_receipts;
 alter publication supabase_realtime add table public.notifications;
 
--- Data demo fiktif dan saling terhubung untuk pengujian awal.
-insert into public.provinces (id, name)
-values ('32', 'Jawa Barat')
-on conflict (id) do nothing;
-
-insert into public.regencies (id, province_id, name)
-values ('3205', '32', 'Kabupaten Garut')
-on conflict (id) do nothing;
-
-insert into public.districts (id, regency_id, name)
-values ('320501', '3205', 'Kecamatan Sukamaju')
-on conflict (id) do nothing;
-
-insert into public.villages (id, government_code, district_id, name, district, province)
-values ('10000000-0000-4000-8000-000000000001', '3205012001', '320501', 'Desa Sukamaju', 'Kabupaten Garut', 'Jawa Barat')
-on conflict (id) do nothing;
-
-insert into public.hamlets (id, village_id, name)
-values ('11000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'Dusun Cempaka')
-on conflict (id) do nothing;
-
-insert into public.residents (
-  id, village_id, hamlet_id, full_name, birth_date, gender, latitude, longitude,
-  lives_alone, mobility_notes, communication_notes, medical_notes,
-  evacuation_notes, consented_at
-)
-values
-  ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', '11000000-0000-4000-8000-000000000001', 'Siti Aminah', '1954-04-12', 'PEREMPUAN', -7.2279, 107.9087, true, 'Memerlukan bantuan untuk berjalan jauh.', 'Gunakan teks, gerakan visual, atau pendamping.', null, 'Jalan masuk sempit; siapkan satu pendamping.', now()),
-  ('20000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000001', '11000000-0000-4000-8000-000000000001', 'Budi Santoso', '1981-09-23', 'LAKI_LAKI', -7.2312, 107.9014, false, 'Dapat berjalan dengan pendamping.', 'Berikan petunjuk suara yang jelas.', null, 'Pendamping keluarga berada di rumah.', now()),
-  ('20000000-0000-4000-8000-000000000003', '10000000-0000-4000-8000-000000000001', '11000000-0000-4000-8000-000000000001', 'Rina Marlina', '1950-01-08', 'PEREMPUAN', -7.2198, 107.9151, false, 'Menggunakan tongkat.', null, 'Membawa obat rutin.', 'Hindari jalur dengan tangga.', now())
-on conflict (id) do nothing;
-
-insert into public.resident_vulnerabilities (resident_id, vulnerability_type_id, severity, assistance_notes)
-select '20000000-0000-4000-8000-000000000001', id, 3, 'Pastikan peringatan visual dan pendamping komunikasi.'
-from public.vulnerability_types where code = 'TUNARUNGU'
-on conflict do nothing;
-insert into public.resident_vulnerabilities (resident_id, vulnerability_type_id, severity, assistance_notes)
-select '20000000-0000-4000-8000-000000000001', id, 3, 'Memerlukan bantuan mobilitas saat evakuasi.'
-from public.vulnerability_types where code = 'LANSIA'
-on conflict do nothing;
-insert into public.resident_vulnerabilities (resident_id, vulnerability_type_id, severity, assistance_notes)
-select '20000000-0000-4000-8000-000000000002', id, 4, 'Sebutkan arah dan hambatan secara verbal.'
-from public.vulnerability_types where code = 'TUNANETRA'
-on conflict do nothing;
-insert into public.resident_vulnerabilities (resident_id, vulnerability_type_id, severity, assistance_notes)
-select '20000000-0000-4000-8000-000000000003', id, 2, 'Periksa stamina dan obat sebelum perjalanan.'
-from public.vulnerability_types where code = 'LANSIA'
-on conflict do nothing;
-
-insert into public.devices (id, village_id, owner_name, latitude, longitude, battery, online, status)
-values
-  ('JAGA-0048', '10000000-0000-4000-8000-000000000001', 'Siti Aminah', -7.2279, 107.9087, 73, true, 'ASSIGNED'),
-  ('JAGA-0052', '10000000-0000-4000-8000-000000000001', 'Budi Santoso', -7.2312, 107.9014, 61, true, 'ASSIGNED'),
-  ('JAGA-0061', '10000000-0000-4000-8000-000000000001', 'Rina Marlina', -7.2198, 107.9151, 84, true, 'ASSIGNED')
-on conflict (id) do nothing;
-
-insert into public.device_assignments (id, device_id, resident_id, assigned_at)
-values
-  ('30000000-0000-4000-8000-000000000001', 'JAGA-0048', '20000000-0000-4000-8000-000000000001', now()),
-  ('30000000-0000-4000-8000-000000000002', 'JAGA-0052', '20000000-0000-4000-8000-000000000002', now()),
-  ('30000000-0000-4000-8000-000000000003', 'JAGA-0061', '20000000-0000-4000-8000-000000000003', now())
-on conflict (id) do nothing;
+-- Data demo TIDAK disertakan di migrasi. Data pilot dummy (Aceh Utara) dimuat lewat scripts/seed-supabase.mjs.
 
 commit;

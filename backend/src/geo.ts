@@ -119,6 +119,23 @@ export function distanceToZone(point: GeoPoint, zone: ZoneLike | Row): number | 
   return distance - radius;
 }
 
+/**
+ * Risiko zona bahaya aktif tertinggi di sebuah titik: di dalam zona = risk_level; dekat tepi zona (risk_level x 30 m)
+ * = risk_level - 1; selain itu 0. Zona dibaca dari baris DB (center_latitude/center_longitude/radius_meters).
+ */
+export function hazardRiskAt(position: GeoPoint, zones: Row[], at = new Date()): number {
+  let best = 0;
+  for (const zone of zones) {
+    if (!isZoneActive(zone, at)) continue;
+    const remaining = distanceToZone(position, zone);
+    if (remaining === null) continue;
+    const risk = Number(zone.risk_level ?? 0);
+    const value = remaining <= 0 ? risk : remaining <= risk * 30 ? risk - 1 : 0;
+    best = Math.max(best, value);
+  }
+  return best;
+}
+
 export function zonesTouching(point: GeoPoint, zones: Row[]): Row[] {
   return zones.filter(zone => {
     const remaining = distanceToZone(point, zone as ZoneLike);

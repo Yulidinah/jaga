@@ -4,7 +4,7 @@ import { extname, join, normalize, resolve, sep } from "node:path";
 import { buildRouter } from "./api/index.js";
 import { authenticateDevice, authenticateGateway, resolveSession, usingEphemeralSessionSecret } from "./auth.js";
 import { config, projectRoot } from "./config.js";
-import { HttpError, json, readBody } from "./lib.js";
+import { HttpError, json, nowIso, readBody } from "./lib.js";
 import { addSubscriber, publish } from "./realtime.js";
 import { createStore } from "./store-boot.js";
 import type { Store } from "./store.js";
@@ -35,19 +35,21 @@ const CONTENT_TYPES: Record<string, string> = {
  * diakses karena tidak ada di daftar ini.
  */
 const STATIC_FILES: Record<string, string> = {
-  "/": "index.html",
+  // Halaman depan publik; dashboard (butuh masuk) berada di /app.
+  "/": "landing.html",
+  "/landing.css": "landing.css",
+  "/landing.js": "landing.js",
+  "/app": "index.html",
   "/index.html": "index.html",
   "/login": "login.html",
   "/login.html": "login.html",
-  "/buat-akun": "buat-akun.html",
-  "/buat-akun.html": "buat-akun.html",
   "/app.js": "app.js",
   "/auth.js": "auth.js",
   "/api-client.js": "api-client.js",
   "/styles.css": "styles.css",
   "/auth.css": "auth.css",
   "/manifest.webmanifest": "manifest.webmanifest",
-  "/icon.svg": "icon.svg",
+  "/logo_jaga.jpeg": "logo_jaga.jpeg",
   "/service-worker.js": "service-worker.js"
 };
 
@@ -56,13 +58,16 @@ const STATIC_DIRS: Record<string, string> = {
   "/vendor/": "vendor"
 };
 
+/** Seluruh aset antarmuka berada di folder frontend/. */
+const webRoot = resolve(projectRoot, "frontend");
+
 const ALLOWED_EXTENSIONS = new Set(Object.keys(CONTENT_TYPES));
 
 const resolveStatic = async (pathname: string): Promise<{ file: string; type: string } | null> => {
   const direct = STATIC_FILES[pathname];
   if (direct) {
-    const file = resolve(projectRoot, direct);
-    if (!file.startsWith(projectRoot + sep)) return null;
+    const file = resolve(webRoot, direct);
+    if (!file.startsWith(webRoot + sep)) return null;
     return { file, type: CONTENT_TYPES[extname(file)] ?? "application/octet-stream" };
   }
   for (const [prefix, dir] of Object.entries(STATIC_DIRS)) {
@@ -70,8 +75,8 @@ const resolveStatic = async (pathname: string): Promise<{ file: string; type: st
     const relative = normalize(pathname.slice(prefix.length)).replace(/^([/\\])+/, "");
     if (!relative || relative.includes("..")) return null;
     if (!ALLOWED_EXTENSIONS.has(extname(relative))) return null;
-    const file = resolve(projectRoot, dir, relative);
-    if (!file.startsWith(join(projectRoot, dir) + sep)) return null;
+    const file = resolve(webRoot, dir, relative);
+    if (!file.startsWith(join(webRoot, dir) + sep)) return null;
     return { file, type: CONTENT_TYPES[extname(relative)] ?? "application/octet-stream" };
   }
   return null;
@@ -225,6 +230,16 @@ server.listen(config.port, () => {
     console.warn("[jaga] JAGA_DEV_ROLE_HEADER aktif. Jangan pakai di lingkungan produksi.");
   }
   publish("connected", { storage: store.kind });
+
+  // Mode memori/demo: kalung "online" pada data demo tidak punya perangkat nyata yang mengirim sinyal, jadi sinyalnya
+  // diperbarui berkala supaya tidak otomatis tampil offline. Matikan dengan JAGA_DEMO_HEARTBEAT=false.
+  if (store.kind === "memory" && process.env.JAGA_DEMO_HEARTBEAT !== "false") {
+    const heartbeat = setInterval(async () => {
+      const devices = await store.list("devices", { eq: { online: true } });
+      for (const device of devices) await store.update("devices", String(device.id), { last_seen_at: nowIso() });
+    }, 5 * 60_000);
+    heartbeat.unref();
+  }
 });
 
 const shutdown = (signal: string) => {

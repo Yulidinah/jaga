@@ -10,6 +10,8 @@ import * as devices from "./devices-api.js";
 import * as alerts from "./alerts-api.js";
 import * as rulesets from "./rulesets-api.js";
 import * as dashboard from "./dashboard-api.js";
+import * as operations from "./operations-api.js";
+import { DEMO_ACCOUNTS } from "../seed.js";
 
 const CENTRAL = ["PUSAT"] as const;
 
@@ -25,6 +27,11 @@ export function buildRouter(): Router {
 
   router.get("/api/config", async ctx => ({
     storage: ctx.store.kind,
+    demoData: ctx.store.kind === "memory" || process.env.JAGA_DATA_IS_DUMMY === "true",
+    // Akun contoh hanya ditawarkan pada mode memori non-produksi (data dummy publik).
+    demoAccounts: ctx.store.kind === "memory" && config.env !== "production"
+      ? DEMO_ACCOUNTS.map(a => ({ label: ({ PUSAT: "JAGA Pusat", DESA: "JAGA Desa", RESCUE: "JAGA Rescue" } as Record<string, string>)[a.role] + (a.role === "RESCUE" ? ` (${a.email.includes("damkar") ? "Damkar" : "BPBD"})` : ""), email: a.email, password: a.password }))
+      : [],
     devRoleHeaderEnabled: config.devRoleHeader,
     mqttConfigured: Boolean(config.mqttUrl && config.mqttUsername),
     pushConfigured: Boolean(config.fcmServerKey),
@@ -34,6 +41,8 @@ export function buildRouter(): Router {
 
   /* --------------------------------------------------------------- Sesi */
   router.post("/api/auth/login", auth.login, { public: true, status: 200 });
+  // Dipakai halaman depan untuk mengetahui apakah pengunjung sudah punya sesi (tanpa 401 saat belum masuk).
+  router.get("/api/auth/status", async ctx => ({ authenticated: Boolean(ctx.session), role: ctx.session?.role ?? null }), { public: true });
   router.post("/api/auth/logout", auth.logout);
   router.get("/api/auth/me", auth.me);
   router.get("/api/session", auth.sessionInfo);
@@ -93,12 +102,12 @@ export function buildRouter(): Router {
   router.post("/api/teams/:id/accept", teams.acceptAssignment, { roles: ["PUSAT", "RESCUE"] });
 
   /* ---------------------------------------------------------- Perangkat */
-  router.get("/api/devices", devices.listDevices);
+  router.get("/api/devices", devices.listDevices, { roles: ["PUSAT", "DESA"] });
   router.post("/api/devices", devices.createDevice, { roles: ["PUSAT", "DESA"], status: 201 });
   router.patch("/api/devices/:id", devices.updateDevice, { roles: ["PUSAT", "DESA"] });
   router.post("/api/devices/:id/assign", devices.assignDevice, { roles: ["PUSAT", "DESA"], status: 201 });
   router.post("/api/devices/:id/unassign", devices.unassignDevice, { roles: ["PUSAT", "DESA"] });
-  router.get("/api/devices/:id/telemetry", devices.deviceTelemetry);
+  router.get("/api/devices/:id/telemetry", devices.deviceTelemetry, { roles: ["PUSAT", "DESA"] });
   router.post("/api/devices/:id/key", devices.rotateDeviceKey, { roles: ["PUSAT", "DESA"] });
   router.get("/api/gateways", devices.listGateways);
   router.post("/api/gateways", devices.createGateway, { roles: CENTRAL, status: 201 });
@@ -110,6 +119,14 @@ export function buildRouter(): Router {
   router.get("/api/device/location", devices.deviceLocation, { public: true });
   router.get("/api/device/inbox", devices.deviceInbox, { public: true });
   router.post("/api/device/receipts/:receiptId", alerts.acknowledgeAlert, { public: true });
+
+  /* ----------------------------------------------------------- Operasi */
+  router.get("/api/operations", operations.listOperations);
+  router.get("/api/operations/:id", operations.getOperation);
+  router.get("/api/operations/:id/roster", operations.getRoster);
+  router.get("/api/operations/:id/offline-pack", operations.offlinePack);
+  router.patch("/api/operations/:id", operations.updateOperation, { roles: ["PUSAT", "DESA"] });
+  router.post("/api/operations/:id/close", operations.closeOperation, { roles: ["PUSAT", "DESA"] });
 
   /* -------------------------------------------------------------- Alert */
   router.get("/api/alerts", alerts.listAlerts);

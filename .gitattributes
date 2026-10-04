@@ -1,0 +1,10 @@
+# Seragamkan akhir baris agar kolaborator beda sistem operasi tidak saling menimpa baris
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.zip binary
+*.bin binary
+*.elf binary
+*.hex binary

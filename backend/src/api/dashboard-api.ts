@@ -1,6 +1,6 @@
 import { assertVillageAccess, scopeIds } from "../auth.js";
 import { accessProfile, riskBand } from "../geo.js";
-import { indexBy, notFound } from "../lib.js";
+import { forbidden, indexBy, isOnline, notFound } from "../lib.js";
 import { recentAudit } from "../audit.js";
 import { subscriberCount } from "../realtime.js";
 import { LEVEL_LABEL } from "../recommend.js";
@@ -8,6 +8,7 @@ import { param, type Ctx } from "../router.js";
 import type { RecommendationLevel, Row } from "../types.js";
 import { loadSupportProfile, scopedQuery } from "./common.js";
 import { statusLabel } from "./incidents-api.js";
+import { rescueOperationFor, rescueVisible } from "./operations-api.js";
 
 const CLOSED = new Set(["SAFE", "CANCELLED", "CLOSED"]);
 
@@ -55,8 +56,10 @@ export async function overview(ctx: Ctx) {
     }).map(row => String(row.resident_id))
   );
 
-  const offlineDevices = devices.filter(row => row.online !== true);
-  const lowBattery = devices.filter(row => Number(row.battery ?? 100) <= 20);
+  // Kalung stok/hilang/pensiun tidak diharapkan online; hanya yang terpasang atau dalam perawatan yang dihitung.
+  const deployed = devices.filter(row => !["STOCK", "RETIRED", "LOST"].includes(String(row.status)));
+  const offlineDevices = deployed.filter(row => !isOnline(row));
+  const lowBattery = deployed.filter(row => Number(row.battery ?? 100) <= 20);
   const unassignedDevices = devices.filter(row => !assignments.some(item => String(item.device_id) === String(row.id)));
 
   const byStatus = new Map<string, number>();
@@ -82,11 +85,11 @@ export async function overview(ctx: Ctx) {
       teamsAvailable: teams.filter(row => row.status === "AVAILABLE" && row.active !== false).length,
       teamsTotal: teams.length,
       teamsBusy: teams.filter(row => ["ASSIGNED", "EN_ROUTE", "ON_SCENE"].includes(String(row.status))).length,
-      devicesTotal: devices.length,
-      devicesOnline: devices.length - offlineDevices.length,
+      devicesTotal: deployed.length,
+      devicesOnline: deployed.length - offlineDevices.length,
       devicesLowBattery: lowBattery.length,
       devicesUnassigned: unassignedDevices.length,
-      gatewaysOnline: gateways.filter(row => row.online === true).length,
+      gatewaysOnline: gateways.filter(row => isOnline(row)).length,
       activeAlerts: alerts.filter(row => ["QUEUED", "SENT"].includes(String(row.status)) && (!row.expires_at || String(row.expires_at) > new Date().toISOString())).length,
       hazardZones: zones.filter(row => !row.active_until || String(row.active_until) > new Date().toISOString()).length,
       shelters: shelters.length,
@@ -97,7 +100,7 @@ export async function overview(ctx: Ctx) {
     attention: {
       oldestOpenIncidents: oldest,
       offlineDevices: offlineDevices.slice(0, 5).map(row => ({ id: row.id, lastSeenAt: row.last_seen_at, status: row.status })),
-      lowBattery: lowBattery.slice(0, 5).map(row => ({ id: row.id, battery: row.battery, resident: row.owner_name })),
+      lowBattery: lowBattery.slice(0, 5).map(row => ({ id: row.id, battery: row.battery, resident: ctx.session.role === "RESCUE" ? null : row.owner_name })),
       unassignedDevices: unassignedDevices.slice(0, 5).map(row => ({ id: row.id, status: row.status }))
     },
     realtime: { subscribers: subscriberCount() }
@@ -118,6 +121,8 @@ export async function mapData(ctx: Ctx) {
     ctx.store.list("gateways", scopedQuery(ctx.session, "village_id", {}))
   ]);
 
+  // Rescue hanya melihat pemakai kalung di area operasi aktif; peran lain melihat seluruh lingkupnya.
+  const visible = ctx.session.role === "RESCUE" ? await rescueVisible(ctx) : null;
   const residentIds = residents.map(row => String(row.id));
   const vulns = residentIds.length ? await ctx.store.list("resident_vulnerabilities", { in: { resident_id: residentIds } }) : [];
   const types = await ctx.store.list("vulnerability_types", {});
@@ -140,6 +145,7 @@ export async function mapData(ctx: Ctx) {
     })),
     residents: residents
       .filter(row => row.latitude !== null && row.longitude !== null)
+      .filter(row => !visible || visible.residentIds.has(String(row.id)))
       .map(row => ({
         id: row.id,
         villageId: row.village_id,
@@ -153,13 +159,13 @@ export async function mapData(ctx: Ctx) {
           .map(vuln => typeMap.get(String(vuln.vulnerability_type_id))?.category)
           .filter(Boolean)
       })),
-    devices: devices.map(row => ({
+    devices: devices.filter(row => !visible || visible.deviceIds.has(String(row.id))).map(row => ({
       id: row.id,
       villageId: row.village_id,
       latitude: row.latitude,
       longitude: row.longitude,
       battery: row.battery,
-      online: row.online === true,
+      online: isOnline(row),
       status: row.status,
       ownerName: ctx.session.role === "RESCUE" ? null : row.owner_name,
       lastSeenAt: row.last_seen_at
@@ -213,7 +219,7 @@ export async function mapData(ctx: Ctx) {
       name: row.name,
       latitude: row.latitude,
       longitude: row.longitude,
-      online: row.online === true
+      online: isOnline(row)
     })),
     generatedAt: new Date().toISOString()
   };
@@ -355,6 +361,9 @@ export async function residentSnapshot(ctx: Ctx) {
   const profile = await loadSupportProfile(ctx.store, param(ctx, "id"));
   if (!profile) throw notFound("Warga tidak ditemukan");
   assertVillageAccess(ctx.session, profile.resident.village_id);
+  if (ctx.session.role === "RESCUE" && !(await rescueOperationFor(ctx.store, profile.resident))) {
+    throw forbidden("Rescue hanya dapat membuka data pemakai kalung di area operasi yang sedang aktif");
+  }
   return {
     residentId: param(ctx, "id"),
     fullName: profile.resident.full_name,
@@ -362,7 +371,7 @@ export async function residentSnapshot(ctx: Ctx) {
     riskFlags: profile.riskFlags,
     completeness: profile.completeness,
     openIncidents: profile.openIncidents,
-    device: profile.device ? { id: profile.device.id, battery: profile.device.battery, online: profile.device.online } : null,
+    device: profile.device ? { id: profile.device.id, battery: profile.device.battery, online: isOnline(profile.device) } : null,
     contacts: profile.contacts.length
   };
 }

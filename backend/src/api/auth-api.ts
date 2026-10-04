@@ -9,6 +9,7 @@ import { param, type Ctx } from "../router.js";
 import type { JagaRole, Row, Session } from "../types.js";
 
 const ROLES: JagaRole[] = ["PUSAT", "DESA", "RESCUE"];
+const ORG_TYPES = ["BPBD", "BASARNAS", "DAMKAR", "POLISI", "TNI", "RELAWAN", "LAYANAN_KESEHATAN", "LAINNYA"] as const;
 
 /* -------------------------------------------------------------- Sesi */
 
@@ -206,6 +207,18 @@ export async function createAccount(ctx: Ctx) {
       id: organizationId,
       name: text(body.organizationName ?? ("Pemdes " + displayName), "Nama organisasi", { max: 160 }),
       type: "PEMERINTAH_DESA",
+      email,
+      phone: optionalText(body.phone, "Telepon", 40),
+      active: true,
+      created_at: nowIso()
+    });
+  }
+  if (role === "RESCUE" && !organizationId) {
+    organizationId = uuid();
+    await ctx.store.insert("organizations", {
+      id: organizationId,
+      name: text(body.organizationName, "Nama organisasi", { max: 160 }),
+      type: oneOf(body.organizationType ?? "LAINNYA", ORG_TYPES, "Jenis organisasi"),
       email,
       phone: optionalText(body.phone, "Telepon", 40),
       active: true,

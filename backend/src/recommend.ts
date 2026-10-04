@@ -1,4 +1,5 @@
-import { badRequest, clean, nowIso, oneOf } from "./lib.js";
+import { hazardRiskAt } from "./geo.js";
+import { badRequest, clean, isOnline, nowIso, oneOf } from "./lib.js";
 import type { RecommendationLevel, Row } from "./types.js";
 import type { Store } from "./store.js";
 
@@ -14,7 +15,7 @@ export const LEVEL_LABEL: Record<RecommendationLevel, string> = {
 /** Ambang skor bawaan. Nilai di antara ambang diambil oleh level yang lebih rendah. */
 const DEFAULT_BANDS: Array<{ min: number; level: RecommendationLevel }> = [
   { min: 70, level: "DARURAT" },
-  { min: 45, level: "RESPONS_CEPAT" },
+  { min: 50, level: "RESPONS_CEPAT" },
   { min: 25, level: "SEGERA_TINJAU" },
   { min: -999, level: "PANTAU" }
 ];
@@ -179,7 +180,9 @@ export const REQUIRED_FACTORS = [
   "distance_km",
   "is_night",
   "flood_depth_cm",
-  "landslide_risk"
+  "landslide_risk",
+  "evacuation_ability",
+  "hazard_zone_risk"
 ];
 
 export function recommend(input: RecommendationInput): RecommendationResult {
@@ -220,6 +223,10 @@ export function profileFactors(resident: Row, vulns: Row[], contacts: Row[]): Fa
   const severities = vulns.map(vuln => Number(vuln.severity ?? 0));
   const highest = severities.length ? Math.max(...severities) : 0;
   const age = ageFrom(resident.birth_date);
+  // Kemampuan evakuasi mandiri diisi terstruktur oleh petugas (MANDIRI | PERLU_BANTUAN | TIDAK_BISA_SENDIRI).
+  // Teks bebas tidak dipakai sebagai sinyal; bila belum diisi, hanya kategori disabilitas yang dianggap membatasi.
+  const ability = clean(resident.evacuation_ability).toUpperCase();
+  const codes = vulns.map(vuln => String(vuln.type?.code ?? "")).filter(Boolean);
   const coResidents = contacts.filter(contact => contact.lives_with_resident === true);
   return [
     { key: "vulnerability_categories", value: categories, source: "PROFILE" },
@@ -229,7 +236,10 @@ export function profileFactors(resident: Row, vulns: Row[], contacts: Row[]): Fa
     { key: "lives_alone", value: resident.lives_alone === true, source: "PROFILE" },
     { key: "lives_with_others", value: coResidents.length > 0, source: "PROFILE" },
     { key: "mobility_aid", value: clean(resident.mobility_notes), source: "PROFILE" },
-    { key: "mobility_limited", value: Boolean(clean(resident.mobility_notes)) || categories.includes("DISABILITAS"), source: "PROFILE" },
+    { key: "mobility_limited", value: ability ? ability !== "MANDIRI" : categories.includes("DISABILITAS"), source: "PROFILE" },
+    { key: "evacuation_ability", value: ability || null, source: "PROFILE" },
+    { key: "time_critical_medical", value: resident.time_critical_medical === true, source: "PROFILE" },
+    { key: "vulnerability_codes", value: codes, source: "PROFILE" },
     { key: "medical_equipment", value: clean(resident.medical_notes), source: "PROFILE" },
     { key: "communication_notes", value: clean(resident.communication_notes), source: "PROFILE" },
     { key: "evacuation_notes", value: clean(resident.evacuation_notes), source: "PROFILE" },
@@ -241,17 +251,26 @@ export function profileFactors(resident: Row, vulns: Row[], contacts: Row[]): Fa
 }
 
 /** Faktor yang berasal dari situation report / device / penilaian lapangan. */
-export function incidentFactors(incident: Row, telemetry: Row | null, device: Row | null = null): FactorInput[] {
-  // Malam hari ditentukan menurut WIB, bukan zona waktu server.
+/** Malam hari (18.00-06.00) menurut WIB, bukan zona waktu server. */
+export const isNightNow = (): boolean => {
   const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Asia/Jakarta" }).format(new Date())) % 24;
+  return hour < 6 || hour >= 18;
+};
+
+export function incidentFactors(incident: Row, telemetry: Row | null, device: Row | null = null, zones: Row[] = []): FactorInput[] {
   const factors: FactorInput[] = [
     { key: "incident_type", value: String(incident.disaster_type ?? ""), source: "INCIDENT", note: "Jenis bencana dari laporan warga" },
     { key: "severity_reported", value: clean(incident.severity), source: "INCIDENT" },
     { key: "affected_count", value: num(incident.affected_count), source: "INCIDENT" },
     { key: "device_battery", value: num(device?.battery ?? telemetry?.battery), source: "DEVICE" },
-    { key: "device_online", value: device ? device.online === true : null, source: "DEVICE" },
-    { key: "is_night", value: hour < 6 || hour >= 18, source: "SYSTEM" }
+    { key: "device_online", value: device ? isOnline(device) : null, source: "DEVICE" },
+    { key: "is_night", value: isNightNow(), source: "SYSTEM" },
+    { key: "has_active_sos", value: !["SAFE", "CANCELLED", "CLOSED"].includes(String(incident.status)), source: "INCIDENT" }
   ];
+  const lat = incident.latitude, lng = incident.longitude;
+  if (lat !== null && lat !== undefined && lng !== null && lng !== undefined) {
+    factors.push({ key: "hazard_zone_risk", value: hazardRiskAt({ latitude: Number(lat), longitude: Number(lng) }, zones), source: "SYSTEM" });
+  }
   return factors;
 }
 

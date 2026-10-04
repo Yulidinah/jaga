@@ -1,10 +1,11 @@
 import { notify, record } from "../audit.js";
 import { assertVillageAccess, requireRole, scopeIds } from "../auth.js";
-import { badRequest, clean, forbidden, indexBy, notFound, nowIso, oneOf, optionalText, requireUuid, text } from "../lib.js";
+import { badRequest, clean, forbidden, indexBy, isUuid, notFound, nowIso, oneOf, optionalText, requireUuid, text } from "../lib.js";
 import { publish } from "../realtime.js";
 import { param, type Ctx } from "../router.js";
 import type { Row } from "../types.js";
 import { scopedQuery } from "./common.js";
+import { AUTO_OPEN_SEVERITIES, openOrEscalateOperation } from "./operations-api.js";
 
 const SEVERITIES = ["WASPADA", "SIAGA", "EVAKUASI"] as const;
 const TARGET_TYPES = ["DESA", "DUSUN", "KELOMPOK_RENTAN", "PERANGKAT", "ZONA"] as const;
@@ -58,7 +59,14 @@ export async function getAlert(ctx: Ctx) {
   const deviceMap = indexBy(devices, row => String(row.id));
   return {
     ...command,
-    receipts: receipts.map(row => ({ ...row, device: deviceMap.get(String(row.device_id)) ?? null }))
+    receipts: receipts.map(row => {
+      const device = deviceMap.get(String(row.device_id)) ?? null;
+      // Rescue tidak perlu identitas pemilik/lokasi rumah; cukup status perangkat.
+      const shown = device && ctx.session.role === "RESCUE"
+        ? { id: device.id, status: device.status, battery: device.battery, online: device.online }
+        : device;
+      return { ...row, device: shown };
+    })
   };
 }
 
@@ -67,15 +75,30 @@ export async function createAlert(ctx: Ctx) {
   const body = ctx.body;
   const villageId = requireUuid(body.villageId, "Desa");
   assertVillageAccess(ctx.session, villageId);
-  if (!(await ctx.store.one("villages", { eq: { id: villageId } }))) throw badRequest("Desa tidak ditemukan");
-  const targetType = oneOf(body.targetType ?? "DESA", TARGET_TYPES, "Tipe target");
+  const village = await ctx.store.one("villages", { eq: { id: villageId } });
+  if (!village) throw badRequest("Desa tidak ditemukan");
+  let targetType = oneOf(body.targetType ?? "DESA", TARGET_TYPES, "Tipe target");
   const severity = oneOf(body.severity ?? "WASPADA", SEVERITIES, "Tingkat kewaspadaan");
   const message = text(body.message, "Isi peringatan", { max: 1000 });
   const targetReference = optionalText(body.targetReference, "Referensi target", 200);
-  const target = text(body.target ?? targetReference ?? villageId, "Target", { max: 200 });
+
+  // Area per dusun: hamletIds (boleh beberapa) membatasi alarm dan operasi pada dusun terdampak.
+  const requestedHamlets = Array.isArray(body.hamletIds) ? Array.from(new Set(body.hamletIds.map(String))) : [];
+  if (requestedHamlets.length && targetType === "DESA") targetType = "DUSUN";
+  let hamletIds: string[] = [];
+  let hamletNames = "";
+  if (targetType === "DUSUN") {
+    hamletIds = requestedHamlets.length ? requestedHamlets : targetReference ? [targetReference] : [];
+    if (!hamletIds.length) throw badRequest("Target dusun memerlukan hamletIds berisi ID dusun");
+    if (!hamletIds.every(isUuid)) throw badRequest("ID dusun tidak valid");
+    const found = await ctx.store.list("hamlets", { in: { id: hamletIds }, eq: { village_id: villageId } });
+    if (found.length !== hamletIds.length) throw badRequest("Ada dusun yang tidak ditemukan di desa ini");
+    hamletNames = found.map(row => String(row.name)).join(", ");
+  }
+  const target = text(String(body.target ?? (hamletNames || targetReference || `Seluruh ${village.name}`)).slice(0, 200), "Target", { max: 200 });
 
   // Sasaran dihitung lebih dulu: peringatan tanpa perangkat sasaran ditolak, bukan dikirim ke semua orang.
-  const deviceIds = await resolveTargets(ctx, { villageId, targetType, targetReference });
+  const deviceIds = await resolveTargets(ctx, { villageId, targetType, targetReference, hamletIds });
   if (!deviceIds.length) throw badRequest("Tidak ada perangkat sasaran untuk target ini. Periksa target dan pemasangan kalung.");
   const devices = await ctx.store.list("devices", { in: { id: deviceIds }, eq: { village_id: villageId } });
   if (!devices.length) throw badRequest("Perangkat sasaran tidak ditemukan di desa ini");
@@ -110,7 +133,7 @@ export async function createAlert(ctx: Ctx) {
   }
   const external = channels.filter(channel => channel !== "IN_APP");
   if (external.length) {
-    for (const resident of await resolveResidents(ctx, { villageId, targetType, targetReference })) {
+    for (const resident of await resolveResidents(ctx, { villageId, targetType, targetReference, hamletIds })) {
       for (const channel of external) {
         const destination = String(resident.phone ?? "");
         if (!destination) continue;
@@ -122,6 +145,15 @@ export async function createAlert(ctx: Ctx) {
     }
   }
 
+  // Alarm area tingkat Siaga/Evakuasi membuka operasi: Rescue otomatis mendapat roster pemakai kalung di area itu.
+  let operation: Row | null = null;
+  if ((targetType === "DESA" || targetType === "DUSUN") && AUTO_OPEN_SEVERITIES.includes(severity)) {
+    operation = await openOrEscalateOperation(ctx, {
+      villageId, severity, hamletIds, commandId: String(command.id),
+      waterLevelCm: body.waterLevelCm, note: body.observationNote, disasterType: body.disasterType
+    });
+  }
+
   await record(ctx.store, {
     actorId: ctx.session.profileId, action: "ALERT_SEND", entityType: "alert_commands",
     entityId: String(command.id), summary: `Peringatan ${severity} untuk ${targetType} ${target}`, after: command
@@ -130,6 +162,7 @@ export async function createAlert(ctx: Ctx) {
   return {
     command,
     devicesReached: devices.length,
+    operation,
     residentsNotified: new Set(notifications.map(item => item.notificationId)).size,
     notifications
   };
@@ -142,7 +175,7 @@ const channelsFor = (value: unknown): string[] => {
 };
 
 /** Perangkat sasaran. Selalu dibatasi pada desa peringatan; tidak ada fallback ke "semua perangkat". */
-async function resolveTargets(ctx: Ctx, options: { villageId: string; targetType: string; targetReference: string | null }): Promise<string[]> {
+async function resolveTargets(ctx: Ctx, options: { villageId: string; targetType: string; targetReference: string | null; hamletIds?: string[] }): Promise<string[]> {
   const { villageId, targetType, targetReference } = options;
   if (targetType === "PERANGKAT") {
     if (!targetReference) throw badRequest("Target perangkat memerlukan targetReference berisi ID perangkat");
@@ -161,12 +194,13 @@ async function resolveTargets(ctx: Ctx, options: { villageId: string; targetType
   return assignments.map(row => String(row.device_id));
 }
 
-async function resolveResidents(ctx: Ctx, options: { villageId: string; targetType: string; targetReference: string | null }): Promise<Row[]> {
+async function resolveResidents(ctx: Ctx, options: { villageId: string; targetType: string; targetReference: string | null; hamletIds?: string[] }): Promise<Row[]> {
   const { villageId, targetType, targetReference } = options;
   const residents = await ctx.store.list("residents", { eq: { village_id: villageId, active: true } });
   if (targetType === "DUSUN") {
-    if (!targetReference) throw badRequest("Target dusun memerlukan targetReference berisi ID dusun");
-    return residents.filter(row => String(row.hamlet_id) === targetReference);
+    const wanted = options.hamletIds?.length ? options.hamletIds : targetReference ? [targetReference] : [];
+    if (!wanted.length) throw badRequest("Target dusun memerlukan ID dusun");
+    return residents.filter(row => wanted.includes(String(row.hamlet_id)));
   }
   if (targetType !== "KELOMPOK_RENTAN") return residents;
 

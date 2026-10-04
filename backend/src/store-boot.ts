@@ -1,5 +1,5 @@
 import { config, supabaseEnabled } from "./config.js";
-import { loadDemoData } from "./seed.js";
+import { addIsolationFixture, loadDemoData } from "./seed.js";
 import { MemoryStore } from "./store-memory.js";
 import { createPostgrestStore } from "./store-postgrest.js";
 import type { Store } from "./store.js";
@@ -9,6 +9,7 @@ const isProduction = () => config.env === "production";
 async function memoryStore(reason: string): Promise<Store> {
   const memory = new MemoryStore();
   await loadDemoData(memory);
+  if (process.env.JAGA_TEST_FIXTURES === "true") await addIsolationFixture(memory);
   console.log(`[jaga] memakai penyimpanan memori dengan data demo (${reason})`);
   return memory;
 }

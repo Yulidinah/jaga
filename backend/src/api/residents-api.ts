@@ -8,8 +8,10 @@ import { ageFrom, profileFactors } from "../recommend.js";
 import { param, type Ctx } from "../router.js";
 import type { Row } from "../types.js";
 import { eqFilter, loadSupportProfile, parsePaging, scopedQuery, searchText } from "./common.js";
+import { rescueResidentView } from "./operations-api.js";
 
 const GENDERS = ["LAKI_LAKI", "PEREMPUAN", "LAINNYA"] as const;
+const EVACUATION_ABILITIES = ["MANDIRI", "PERLU_BANTUAN", "TIDAK_BISA_SENDIRI"] as const;
 
 /* ------------------------------------------------------------- Dictionari */
 
@@ -90,6 +92,9 @@ export async function listShelters(ctx: Ctx) {
 /* ---------------------------------------------------------------- Warga */
 
 export async function listResidents(ctx: Ctx) {
+  if (ctx.session.role === "RESCUE") {
+    throw forbidden("Rescue tidak membuka daftar warga. Gunakan roster operasi aktif: GET /api/operations/:id/roster");
+  }
   const { limit, offset } = parsePaging(ctx.query, 1000);
   const villageId = clean(ctx.query.get("villageId"));
   const term = clean(ctx.query.get("q")).toLowerCase();
@@ -136,6 +141,8 @@ export async function listResidents(ctx: Ctx) {
         latitude: row.latitude,
         longitude: row.longitude,
         livesAlone: row.lives_alone === true,
+        evacuationAbility: row.evacuation_ability ?? null,
+        timeCriticalMedical: row.time_critical_medical === true,
         mobilityNotes: row.mobility_notes,
         medicalNotes: row.medical_notes,
         evacuationNotes: row.evacuation_notes,
@@ -155,6 +162,7 @@ export async function listResidents(ctx: Ctx) {
 }
 
 export async function getResident(ctx: Ctx) {
+  if (ctx.session.role === "RESCUE") return rescueResidentView(ctx);
   const profile = await loadSupportProfile(ctx.store, param(ctx, "id"));
   if (!profile) throw notFound("Warga tidak ditemukan");
   assertVillageAccess(ctx.session, profile.resident.village_id);
@@ -210,6 +218,8 @@ export async function createResident(ctx: Ctx) {
     latitude,
     longitude,
     lives_alone: Boolean(body.livesAlone),
+    evacuation_ability: body.evacuationAbility ? oneOf(body.evacuationAbility, EVACUATION_ABILITIES, "Kemampuan evakuasi") : null,
+    time_critical_medical: Boolean(body.timeCriticalMedical),
     mobility_notes: optionalText(body.mobilityNotes, "Catatan mobilitas", 500),
     communication_notes: optionalText(body.communicationNotes, "Catatan komunikasi", 500),
     medical_notes: optionalText(body.medicalNotes, "Catatan medis", 500),
@@ -250,6 +260,8 @@ export async function updateResident(ctx: Ctx) {
   if (body.phone !== undefined) patch.phone = optionalText(body.phone, "Telepon", 40);
   if (body.address !== undefined) patch.address = optionalText(body.address, "Alamat", 500);
   if (body.livesAlone !== undefined) patch.lives_alone = Boolean(body.livesAlone);
+  if (body.evacuationAbility !== undefined) patch.evacuation_ability = body.evacuationAbility ? oneOf(body.evacuationAbility, EVACUATION_ABILITIES, "Kemampuan evakuasi") : null;
+  if (body.timeCriticalMedical !== undefined) patch.time_critical_medical = Boolean(body.timeCriticalMedical);
   if (body.mobilityNotes !== undefined) patch.mobility_notes = optionalText(body.mobilityNotes, "Catatan mobilitas", 500);
   if (body.communicationNotes !== undefined) patch.communication_notes = optionalText(body.communicationNotes, "Catatan komunikasi", 500);
   if (body.medicalNotes !== undefined) patch.medical_notes = optionalText(body.medicalNotes, "Catatan medis", 500);

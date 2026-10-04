@@ -8,3 +8,17 @@ android/**/build/
 .env
 .env.*
 !.env.example
+
+# Tim perangkat (firmware): rahasia dan hasil build tidak ikut repo
+firmware/**/secrets.*
+firmware/**/config.local.*
+firmware/**/.pio/
+firmware/**/build/
+firmware/**/.vscode/
+*.bin
+*.elf
+*.hex
+*.uf2
+
+# Berkas serah-terima
+*.zip

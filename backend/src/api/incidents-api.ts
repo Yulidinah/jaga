@@ -40,6 +40,11 @@ const statusLabel = (status: string) => ({
 } as Record<string, string>)[status] ?? status;
 
 
+const stripSensitive = (row: Row): Row => {
+  const { birth_date: _birth, national_id_encrypted: _nik, consented_at: _consent, gender: _gender, ...rest } = row;
+  return rest;
+};
+
 /* ------------------------------------------------------------------ Baca */
 
 export async function listIncidents(ctx: Ctx) {
@@ -140,7 +145,12 @@ export async function getIncident(ctx: Ctx) {
     ctx.store.list("alert_commands", { eq: { village_id: String(incident.village_id ?? "") }, order: { created_at: "desc" }, limit: 10 })
   ]);
 
-  const resident = incident.resident_id ? await loadSupportProfile(ctx.store, String(incident.resident_id)) : null;
+  const fullProfile = incident.resident_id ? await loadSupportProfile(ctx.store, String(incident.resident_id)) : null;
+  // Rescue: profil hanya untuk insiden yang masih terbuka dan tanpa NIK/tanggal lahir/persetujuan.
+  const resident = ctx.session.role !== "RESCUE" ? fullProfile
+    : fullProfile && !CLOSED.has(String(incident.status))
+      ? { ...fullProfile, resident: stripSensitive(fullProfile.resident) }
+      : null;
   const village = incident.village_id ? await ctx.store.one("villages", { eq: { id: String(incident.village_id) } }) : null;
 
   return {
@@ -363,7 +373,14 @@ async function collectFactors(store: Ctx["store"], incident: Row) {
   ] : [];
 
   const device = incident.device_id ? await store.one("devices", { eq: { id: String(incident.device_id) } }) : null;
-  return mergeFactors(profile, villageFactors, incidentFactors(incident, telemetry, device), assessmentFactors(withFactors));
+  const zones = incident.village_id ? await store.list("hazard_zones", { eq: { village_id: String(incident.village_id) } }) : [];
+  // Pengamatan tinggi air Desa pada operasi aktif: tersedia sebagai faktor tersendiri (bukan menggantikan flood_depth_cm),
+  // sehingga baru berpengaruh bila aturan yang disahkan Pusat memakainya.
+  const operation = incident.village_id ? await store.one("operations", { eq: { village_id: String(incident.village_id), status: "ACTIVE" } }) : null;
+  const operationFactors = operation && operation.water_level_cm !== null && operation.water_level_cm !== undefined
+    ? [{ key: "operation_water_level_cm", value: Number(operation.water_level_cm), source: "INCIDENT" as const, note: "Pengamatan JAGA Desa pada operasi aktif (umum, bukan di rumah warga)" }]
+    : [];
+  return mergeFactors(profile, villageFactors, incidentFactors(incident, telemetry, device, zones), operationFactors, assessmentFactors(withFactors));
 }
 
 export async function calculateRecommendation(store: Ctx["store"], actorId: string | null, incidentId: string, options: { persist?: boolean } = {}) {

@@ -34,7 +34,10 @@ export const config = {
   twilioAuthToken: process.env.TWILIO_AUTH_TOKEN ?? "",
 
   /** Batas jumlah baris yang boleh dikirim ke klien dalam satu permintaan daftar. */
-  maxPageSize: num(process.env.MAX_PAGE_SIZE, 1000)
+  maxPageSize: num(process.env.MAX_PAGE_SIZE, 1000),
+
+  /** Perangkat/gateway dianggap offline bila tidak mengirim sinyal selama sekian menit. */
+  deviceOfflineMinutes: num(process.env.DEVICE_OFFLINE_MINUTES, 15)
 } as const;
 
 export const supabaseEnabled = Boolean(config.supabaseUrl && config.supabaseSecretKey);

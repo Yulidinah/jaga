@@ -83,6 +83,7 @@ export const TABLE_ID_KIND: Record<string, IdKind> = {
   notifications: "uuid",
   attachments: "uuid",
   audit_logs: "identity",
+  operations: "uuid",
   sync_operations: "uuid",
   internal_accounts: "composite"
 };
@@ -100,7 +101,7 @@ export const identityTables = new Set(
 export const HAS_CREATED_AT = new Set([
   "villages", "hamlets", "organizations", "profiles", "residents", "devices", "gateways", "incidents",
   "incident_status_history", "priority_rule_sets", "priority_rules", "incident_assessments",
-  "priority_recommendations", "priority_overrides", "rescue_teams", "evacuation_routes", "alert_commands",
+  "priority_recommendations", "priority_overrides", "rescue_teams", "evacuation_routes", "alert_commands", "operations",
   "notifications", "attachments", "audit_logs", "sync_operations", "hazard_zones", "priority_thresholds"
 ]);
-export const HAS_UPDATED_AT = new Set(["profiles", "residents", "incidents", "devices", "gateways", "rescue_teams"]);
+export const HAS_UPDATED_AT = new Set(["profiles", "residents", "incidents", "devices", "gateways", "rescue_teams", "operations"]);

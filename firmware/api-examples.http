@@ -1,0 +1,68 @@
+### Contoh panggilan API untuk tim kalung (JAGA Rumah) dan gateway.
+### Dipakai dengan ekstensi "REST Client" di VS Code (atau salin ke curl/Postman).
+###
+### Uji lokal tanpa Supabase:
+###   npm install && npm run build
+###   $env:JAGA_FORCE_MEMORY = "true"; npm start          (PowerShell)
+###   node scripts/demo-device-keys.mjs                    (mencetak ID + kunci kalung/gateway DEMO)
+### Isi variabel di bawah dengan hasilnya. Kontrak lengkap: docs/JAGA.md, bagian "Integrasi Kalung".
+
+@base = http://localhost:3000
+@deviceId = JAGA-0003
+@deviceKey = GANTI_DENGAN_KUNCI_DARI_demo-device-keys
+@gatewayKey = GANTI_DENGAN_KUNCI_GATEWAY
+
+### 1. Detak / telemetri (kirim berkala; kalung dianggap offline bila diam lebih dari 15 menit)
+POST {{base}}/api/device/telemetry
+X-JAGA-Device-Id: {{deviceId}}
+X-JAGA-Device-Key: {{deviceKey}}
+Content-Type: application/json
+
+{
+  "battery": 87,
+  "latitude": 4.8282,
+  "longitude": 97.4157,
+  "signalStrength": -92
+}
+
+### 2. Tombol SOS ditekan. Balasan "ack": "SOS_DITERIMA" dipakai untuk umpan balik di kalung.
+###    Menekan lagi saat SOS masih terbuka tidak membuat insiden baru ("duplicate": true).
+###    X-JAGA-Gateway-Key hanya disertakan bila lewat gateway.
+POST {{base}}/api/device/sos
+X-JAGA-Device-Id: {{deviceId}}
+X-JAGA-Device-Key: {{deviceKey}}
+X-JAGA-Gateway-Key: {{gatewayKey}}
+Content-Type: application/json
+
+{
+  "latitude": 4.8282,
+  "longitude": 97.4157,
+  "description": "Tombol SOS ditekan"
+}
+
+### 3. Ambil alarm yang menunggu. Setiap perintah punya "receiptId" dan "severity" (WASPADA | SIAGA | EVAKUASI).
+###    Mengambil inbox menandai perintah sebagai terkirim (QUEUED -> SENT).
+GET {{base}}/api/device/inbox
+X-JAGA-Device-Id: {{deviceId}}
+X-JAGA-Device-Key: {{deviceKey}}
+
+### 4. Konfirmasi alarm sudah dijalankan di kalung (isi receiptId dari langkah 3)
+POST {{base}}/api/device/receipts/GANTI_RECEIPT_ID
+X-JAGA-Device-Id: {{deviceId}}
+X-JAGA-Device-Key: {{deviceKey}}
+Content-Type: application/json
+
+{ "status": "ACKNOWLEDGED" }
+
+### 4b. Bila alarm gagal dijalankan (alasan wajib)
+POST {{base}}/api/device/receipts/GANTI_RECEIPT_ID
+X-JAGA-Device-Id: {{deviceId}}
+X-JAGA-Device-Key: {{deviceKey}}
+Content-Type: application/json
+
+{ "status": "FAILED", "reason": "Motor getar tidak merespons" }
+
+### 5. Info perangkat (lokasi tersimpan, baterai, status)
+GET {{base}}/api/device/location
+X-JAGA-Device-Id: {{deviceId}}
+X-JAGA-Device-Key: {{deviceKey}}

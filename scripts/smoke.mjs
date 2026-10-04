@@ -8,7 +8,7 @@ const base = process.env.BASE ?? `http://localhost:${port}`;
 let server = null;
 if (!process.env.BASE) {
   server = spawn(process.execPath, ["backend/dist/server.js"], {
-    env: { ...process.env, PORT: String(port), JAGA_FORCE_MEMORY: "true", SUPABASE_URL: "", SUPABASE_SECRET_KEY: "" },
+    env: { ...process.env, PORT: String(port), JAGA_FORCE_MEMORY: "true", JAGA_TEST_FIXTURES: "true", SUPABASE_URL: "", SUPABASE_SECRET_KEY: "" },
     stdio: "ignore"
   });
 }
@@ -55,7 +55,7 @@ try {
   check("cookie rusak tidak menyebabkan 500", (await call("GET", "/api/villages", { headers: { cookie: "jaga_session=%E0%A4%A" } })).status === 401);
 
   const pusat = await login("pusat@jaga.id", "JagaPusat2026!");
-  const desa = await login("desa.sukamaju@jaga.id", "JagaDesa2026!");
+  const desa = await login("desa.leubokpusaka@jaga.id", "JagaDesa2026!");
   const rescue = await login("rescue.bpbd@jaga.id", "JagaRescue2026!");
   check("login 3 peran", [pusat, desa, rescue].every(r => r.status === 200 && r.cookie));
   const P = pusat.cookie, D = desa.cookie, R = rescue.cookie;
@@ -79,7 +79,7 @@ try {
   const foreignDevice = ((await call("GET", `/api/devices?villageId=${otherVillage}`, { cookie: P })).data?.data ?? [])[0];
   const crossAlert = await call("POST", "/api/alerts", { cookie: D, body: { villageId: myVillage, targetType: "PERANGKAT", targetReference: foreignDevice?.id, severity: "SIAGA", message: "uji" } });
   check("alarm ke perangkat desa lain ditolak", crossAlert.status === 400, `status ${crossAlert.status}`);
-  const noTarget = await call("POST", "/api/alerts", { cookie: D, body: { villageId: myVillage, targetType: "KELOMPOK_RENTAN", targetReference: "IBU_HAMIL", severity: "SIAGA", message: "uji" } });
+  const noTarget = await call("POST", "/api/alerts", { cookie: D, body: { villageId: myVillage, targetType: "KELOMPOK_RENTAN", targetReference: "DISABILITAS_INTELEKTUAL", severity: "SIAGA", message: "uji" } });
   check("target tanpa perangkat tidak menyiarkan ke semua", noTarget.status === 400, `status ${noTarget.status}`);
   const assignmentsLeak = (await call("GET", "/api/assignments", { cookie: D })).data ?? [];
   check("daftar penugasan hanya desa sendiri", assignmentsLeak.every(a => a.villageId === myVillage));
@@ -116,6 +116,81 @@ try {
   }
   check("kunci perangkat via query string tidak diterima", (await call("GET", `/api/device/inbox?deviceId=${myDevice.id}&deviceKey=${deviceKey}`)).status === 401);
 
+  // --- Operasi: akses data warga Rescue berbasis operasi (roster pemakai kalung)
+  check("alarm Siaga/Evakuasi membuka operasi", !!alert.data?.operation?.id && alert.data.operation.status === "ACTIVE");
+  const opId = alert.data?.operation?.id;
+  const rescueOps = (await call("GET", "/api/operations", { cookie: R })).data ?? [];
+  check("Rescue melihat operasi aktif di wilayahnya", rescueOps.some(o => o.id === opId));
+  check("Rescue tidak boleh membuka daftar warga", (await call("GET", "/api/residents", { cookie: R })).status === 403);
+  check("Rescue tidak boleh membuka daftar perangkat", (await call("GET", "/api/devices", { cookie: R })).status === 403);
+  const roster = (await call("GET", `/api/operations/${opId}/roster`, { cookie: R })).data ?? [];
+  const holdersInVillage = residentsAll.filter(r => r.villageId === myVillage && r.deviceId);
+  check("roster berisi tepat pemakai kalung di desa", roster.length === holdersInVillage.length && roster.length > 0, `${roster.length} vs ${holdersInVillage.length}`);
+  check("roster tanpa NIK/tanggal lahir/jenis kelamin", roster.every(r => !("birthDate" in r) && !("birth_date" in r) && !("gender" in r) && !("nationalId" in r)));
+  check("roster memuat kontak darurat dan status kalung", roster.some(r => (r.contacts ?? []).length > 0) && roster.every(r => r.device));
+  const holder = roster[0];
+  const holderView = await call("GET", `/api/residents/${holder.residentId}`, { cookie: R });
+  check("Rescue membuka profil pemakai kalung saat operasi aktif", holderView.status === 200 && holderView.data?.restricted === true && !("birth_date" in (holderView.data?.resident ?? {})));
+  const noKalung = await call("POST", "/api/residents", { cookie: D, body: { villageId: myVillage, fullName: "Warga Tanpa Kalung", consented: true } });
+  check("warga tanpa kalung dibuat", noKalung.status === 201);
+  check("Rescue tidak boleh membuka warga tanpa kalung", (await call("GET", `/api/residents/${noKalung.data?.id}`, { cookie: R })).status === 403);
+  check("warga tanpa kalung tidak masuk roster", !((await call("GET", `/api/operations/${opId}/roster`, { cookie: R })).data ?? []).some(r => r.residentId === noKalung.data?.id));
+  check("Rescue tidak boleh membuka warga desa lain", (await call("GET", `/api/residents/${foreignResident.id}`, { cookie: R })).status === 403 || (await call("GET", `/api/residents/${foreignResident.id}`, { cookie: R })).status === 403);
+  const mapRescue = (await call("GET", "/api/dashboard/map", { cookie: R })).data;
+  check("peta Rescue hanya memuat pemakai kalung roster", (mapRescue.residents ?? []).every(r => roster.some(x => x.residentId === r.id)));
+  check("Rescue tidak melihat nama pemilik kalung di peta", (mapRescue.devices ?? []).every(d => d.ownerName === null));
+  // --- Prioritas berwarna untuk Rescue
+  const COLORS = ["red", "orange", "yellow", "green"];
+  const withPriority = roster.every(r => r.priority && COLORS.includes(r.priority.color) && Array.isArray(r.priority.reasons) && r.priority.reasons.length > 0);
+  check("setiap pemakai kalung punya prioritas berwarna beserta alasan", withPriority);
+  const rank = c => COLORS.indexOf(c);
+  check("roster terurut dari merah ke hijau", roster.every((r, i) => i === 0 || rank(roster[i - 1].priority.color) <= rank(r.priority.color)));
+  check("prioritas memakai lebih dari satu warna", new Set(roster.map(r => r.priority.color)).size >= 3, [...new Set(roster.map(r => r.priority.color))].join(","));
+  const byName = name => roster.find(r => r.fullName === name)?.priority;
+  check("SOS aktif + tidak bisa mengungsi + sendiri = merah", byName("Abdullah Yusuf")?.color === "red");
+  check("label kelompok saja tidak menentukan: disabilitas mandiri lebih rendah daripada lansia tidak bisa mengungsi", byName("Syarifah Aini")?.score < byName("Abdullah Yusuf")?.score);
+  check("ibu hamil sehat jauh dari zona bahaya berprioritas rendah", ["green", "yellow"].includes(byName("Rahmi")?.color));
+  check("kebutuhan medis mendesak menaikkan prioritas", byName("Mahdalena")?.score > byName("Rahmi")?.score + 20);
+  const before = Object.fromEntries(roster.map(r => [r.fullName, r.priority.score]));
+  await call("PATCH", `/api/operations/${opId}`, { cookie: D, body: { waterLevelCm: 150 } });
+  const rosterHigh = (await call("GET", `/api/operations/${opId}/roster`, { cookie: R })).data ?? [];
+  check("tinggi air yang dilaporkan Desa menaikkan prioritas seluruh warga", rosterHigh.every(r => r.priority.score >= before[r.fullName]) && rosterHigh.some(r => r.priority.score > before[r.fullName]));
+  check("kemampuan evakuasi tidak valid ditolak", (await call("POST", "/api/residents", { cookie: D, body: { villageId: myVillage, fullName: "Uji", consented: true, evacuationAbility: "TERBANG" } })).status === 400);
+  const structured = await call("POST", "/api/residents", { cookie: D, body: { villageId: myVillage, fullName: "Warga Terstruktur", consented: true, evacuationAbility: "TIDAK_BISA_SENDIRI", timeCriticalMedical: true } });
+  check("kemampuan evakuasi dan kebutuhan medis tersimpan terstruktur", structured.status === 201 && structured.data?.evacuation_ability === "TIDAK_BISA_SENDIRI" && structured.data?.time_critical_medical === true);
+  const pack = await call("GET", `/api/operations/${opId}/offline-pack`, { cookie: R });
+  check("paket offline berisi roster, zona, shelter", pack.status === 200 && pack.data?.roster?.length === roster.length && Array.isArray(pack.data?.hazardZones) && Array.isArray(pack.data?.shelters));
+  const audited = ((await call("GET", "/api/audit/recent", { cookie: P })).data ?? []).map(e => e.action);
+  check("akses roster dan profil oleh Rescue tercatat di audit", audited.includes("OPERATION_ROSTER_VIEW") && audited.includes("RESCUE_RESIDENT_VIEW"));
+  check("Rescue tidak boleh menutup operasi", (await call("POST", `/api/operations/${opId}/close`, { cookie: R, body: {} })).status === 403);
+  check("tinggi air tidak valid ditolak", (await call("PATCH", `/api/operations/${opId}`, { cookie: D, body: { waterLevelCm: -5 } })).status === 400);
+  const upd = await call("PATCH", `/api/operations/${opId}`, { cookie: D, body: { waterLevelCm: 100, note: "Sungai naik, titik rendah tergenang" } });
+  check("Desa memperbarui tinggi air", upd.status === 200 && upd.data?.waterLevelCm === 100);
+  const closed = await call("POST", `/api/operations/${opId}/close`, { cookie: D, body: { note: "Air surut" } });
+  check("Desa menutup operasi", closed.status === 200 && closed.data?.status === "CLOSED");
+  check("setelah ditutup roster ditolak untuk Rescue", (await call("GET", `/api/operations/${opId}/roster`, { cookie: R })).status === 403);
+  check("setelah ditutup profil warga ditolak untuk Rescue", (await call("GET", `/api/residents/${holder.residentId}`, { cookie: R })).status === 403);
+  check("setelah ditutup peta Rescue tanpa warga", ((await call("GET", "/api/dashboard/map", { cookie: R })).data?.residents ?? []).length === 0);
+  check("operasi tertutup tidak dapat diubah", (await call("PATCH", `/api/operations/${opId}`, { cookie: D, body: { note: "x" } })).status === 409);
+
+  // Area per dusun
+  const hamletOf = holdersInVillage.find(r => r.hamletId)?.hamletId;
+  const inHamlet = holdersInVillage.filter(r => r.hamletId === hamletOf || !r.hamletId);
+  const waspada = await call("POST", "/api/alerts", { cookie: D, body: { villageId: myVillage, severity: "WASPADA", hamletIds: [hamletOf], message: "Waspada dusun" } });
+  check("alarm Waspada tidak membuka operasi", waspada.status === 201 && waspada.data?.operation === null);
+  const dusunAlert = await call("POST", "/api/alerts", { cookie: D, body: { villageId: myVillage, severity: "SIAGA", hamletIds: [hamletOf], message: "Siaga dusun", waterLevelCm: 60, observationNote: "Air naik di titik rendah" } });
+  const dusunOp = dusunAlert.data?.operation;
+  check("alarm Siaga per dusun membuka operasi area dusun", dusunAlert.status === 201 && dusunOp?.area_type === "DUSUN" && dusunOp?.water_level_cm === 60, `status ${dusunAlert.status} ${dusunAlert.error ?? ""}`);
+  const dusunRoster = (await call("GET", `/api/operations/${dusunOp?.id}/roster`, { cookie: R })).data ?? [];
+  check("roster dibatasi dusun terpilih", dusunRoster.length === inHamlet.length && dusunRoster.length <= holdersInVillage.length, `${dusunRoster.length} vs ${inHamlet.length}/${holdersInVillage.length}`);
+  const dusunDetail = (await call("GET", `/api/operations/${dusunOp?.id}`, { cookie: R })).data;
+  check("operasi memuat nama dusun", Array.isArray(dusunDetail?.hamletNames) && dusunDetail.hamletNames.length === 1);
+  const second = await call("POST", "/api/alerts", { cookie: D, body: { villageId: myVillage, severity: "EVAKUASI", message: "Eskalasi seluruh desa" } });
+  check("alarm berikutnya meningkatkan operasi yang sama (bukan operasi baru)", second.data?.operation?.id === dusunOp?.id && second.data?.operation?.severity === "EVAKUASI" && second.data?.operation?.area_type === "DESA");
+  const operationList = (await call("GET", "/api/operations?status=ACTIVE", { cookie: D })).data ?? [];
+  check("hanya satu operasi aktif per desa", operationList.filter(o => o.villageId === myVillage).length === 1);
+  await call("POST", `/api/operations/${dusunOp?.id}/close`, { cookie: D, body: {} });
+
   // --- SOS dari kalung
   // Pilih kalung yang belum punya SOS terbuka (data seed sudah memuat beberapa insiden aktif).
   const openIncidents = ((await call("GET", "/api/incidents?limit=500", { cookie: P })).data?.data ?? []).filter(i => !["SAFE", "CANCELLED", "CLOSED"].includes(i.status));
@@ -144,7 +219,7 @@ try {
   const factors = (await call("GET", `/api/residents/${myResident.id}`, { cookie: D })).data?.priorityFactors ?? [];
   const cats = factors.find(f => f.key === "vulnerability_categories")?.value ?? [];
   check("faktor kerentanan berisi kategori, bukan UUID", cats.length > 0 && cats.every(c => /^[A-Z_]+$/.test(c)), JSON.stringify(cats));
-  const sos = await call("POST", "/api/sos", { cookie: P, body: { villageId: allVillages[0].id, latitude: -7.2279, longitude: 107.9087, description: "uji rute" } });
+  const sos = await call("POST", "/api/sos", { cookie: P, body: { villageId: myVillage, latitude: -7.2279, longitude: 107.9087, description: "uji rute" } });
   const routes = await call("GET", `/api/incidents/${sos.data?.id}/routes`, { cookie: P });
   check("rute memakai tujuan nyata (jarak > 0)", routes.status === 200 && (routes.data?.fastest?.distanceMeters ?? 0) > 0, `jarak ${routes.data?.fastest?.distanceMeters}`);
   const hazard = ((await call("GET", "/api/hazard-zones", { cookie: P })).data ?? []).find(z => z.centerLatitude != null);
@@ -180,6 +255,7 @@ try {
   const counters = (await call("GET", "/api/dashboard", { cookie: P })).data?.counters;
   const devicesAll = (await call("GET", "/api/devices?limit=500", { cookie: P })).data?.data ?? [];
   check("jumlah perangkat tidak terpasang akurat", counters.devicesUnassigned === devicesAll.filter(d => !d.residentId).length, `${counters.devicesUnassigned} vs ${devicesAll.filter(d => !d.residentId).length}`);
+  check("perangkat 'online' hanya bila sinyal terakhir masih baru", devicesAll.every(d => !d.online || Date.now() - new Date(d.lastSeenAt).getTime() <= 15 * 60_000));
   const notifD = (await call("GET", "/api/notifications", { cookie: D })).data ?? [];
   check("DESA melihat notifikasi alarm desanya", notifD.length > 0);
   check("akun desa melihat akun di lingkupnya", ((await call("GET", "/api/accounts", { cookie: D })).data ?? []).length >= 1);
@@ -192,10 +268,29 @@ try {
   for (let i = 0; i < 12; i++) if ((await call("POST", "/api/auth/login", { body: { email: "brute@jaga.id", password: "x" + i } })).status === 429) blocked = true;
   check("rate limit login (429)", blocked);
 
+  // --- Konfigurasi publik & pembuatan akun
+  const cfg = await call("GET", "/api/config");
+  check("config menawarkan akun demo pada mode memori", cfg.data?.demoData === true && (cfg.data?.demoAccounts ?? []).length >= 3);
+  const newRescue = await call("POST", "/api/accounts", { cookie: P, body: { displayName: "Petugas Baru", email: "petugas.baru@jaga.id", password: "Rahasia1234", role: "RESCUE", organizationName: "Basarnas Uji", organizationType: "BASARNAS", villageIds: [myVillage] } });
+  check("Pusat membuat akun Rescue beserta organisasinya", newRescue.status === 201 && !!newRescue.data?.organizationId, `status ${newRescue.status} ${newRescue.error ?? ""}`);
+  const newLogin = await login("petugas.baru@jaga.id", "Rahasia1234");
+  check("akun Rescue baru dapat masuk dan berlingkup desa", newLogin.status === 200 && newLogin.data?.session?.villageIds?.[0] === myVillage);
+
   // --- Aset
   for (const secretPath of ["/.env", "/package.json", "/backend/src/config.ts", "/supabase/migrations/202609220002_operational.sql"]) {
     check(`tolak akses ${secretPath}`, (await fetch(base + secretPath)).status === 404);
   }
+  for (const page of ["/", "/app", "/login", "/landing.css", "/landing.js", "/app.js", "/api-client.js", "/styles.css", "/auth.css", "/auth.js", "/manifest.webmanifest", "/service-worker.js", "/logo_jaga.jpeg", "/assets/logo-mark.png", "/assets/logo-mark-white.png", "/assets/icon-192.png", "/vendor/leaflet/leaflet.js", "/vendor/leaflet/leaflet.css"]) {
+    check(`aset web ${page} tersaji`, (await fetch(base + page)).status === 200);
+  }
+  const statusAnon = await call("GET", "/api/auth/status");
+  const statusIn = await call("GET", "/api/auth/status", { cookie: R });
+  check("status sesi publik: anonim = false, Rescue = RESCUE (tanpa 401)", statusAnon.status === 200 && statusAnon.data?.authenticated === false && statusIn.data?.role === "RESCUE");
+  const landing = await (await fetch(base + "/")).text();
+  check("halaman depan publik memuat tombol masuk dan tiga peran", /href="\/login"/.test(landing) && /JAGA Desa/.test(landing) && /JAGA Rescue/.test(landing) && /JAGA Pusat/.test(landing));
+  check("kartu peran mengarah ke login dengan parameter peran", ["desa", "rescue", "pusat"].every(r => landing.includes(`/login?role=${r}`)));
+  const appPage = await (await fetch(base + "/app")).text();
+  check("dashboard berada di /app", /id="navbar"/.test(appPage) && !/id="navbar"/.test(landing));
   const csp = (await fetch(base + "/")).headers.get("content-security-policy") ?? "";
   check("CSP mengizinkan Google Fonts, tanpa unpkg script", /fonts\.googleapis\.com/.test(csp) && !/script-src[^;]*unpkg/.test(csp));
 } catch (error) {
