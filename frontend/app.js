@@ -82,7 +82,7 @@ const state = {
     operations: [], shelters: [], tickets: [], board: null, announcements: [], reports: [], villageStat: null, platformInfo: null, governanceInfo: null, coverage: {}, draftRules: null, draftThresholds: [], residents: [], devices: [], teams: [], rosters: {}, accounts: [], ruleSets: [], activeRules: null, thresholds: [], audit: [], opsAll: []
   },
  ui: {
-    pusat: { province: '', village: '', deviceLoc: 'all', ticketFilter: 'open', ruleEditing: false, announceTarget: 'ALL', announceVillages: [], announceDraft: { title: '', body: '', priority: 'INFO', expiresInHours: '72' } }, lastKey: null, tracking: null, tileProgress: null,
+    pusat: { province: '', village: '', deviceLoc: 'all', ticketFilter: 'open', ruleEditing: false, announceTarget: 'ALL', announceVillages: [], announceRegency: '', announceDraft: { title: '', body: '', priority: 'INFO', expiresInHours: '72' } }, lastKey: null, tracking: null, tileProgress: null,
     menu: null, modal: null, residentSearch: '', residentFilter: 'all', incidentFilter: 'active', auditSearch: '',
     alarm: { severity: 'SIAGA', target: 'ALL', message: '', waterLevelCm: '', note: '' }
   }
@@ -169,18 +169,19 @@ function viewPusatRingkasan() {
   return `${pageHead('Ringkasan JAGA Pusat', 'Cakupan wilayah, persediaan kalung, dan kendala teknis yang menunggu penanganan Pusat.')}
     <div class="stack">${banner}
     <div class="kpis">
-      ${kpi({ icon: 'map', label: 'Provinsi', value: c.provinces ?? 0, hint: `${c.villages ?? 0} desa terdaftar` })}
+      ${kpi({ icon: 'map', label: 'Provinsi', value: c.provinces ?? 0, hint: `${D.villages.length} desa terdaftar` })}
       ${kpi({ icon: 'users', label: 'Warga terdaftar', value: c.residents ?? 0, hint: `${c.vulnerableResidents ?? 0} kelompok rentan` })}
       ${kpi({ icon: 'device', label: 'Kalung aktif', value: `${c.devicesOnline ?? 0}/${c.devicesTotal ?? 0}`, hint: `${c.devicesLowBattery ?? 0} baterai rendah`, tone: 'blue' })}
       ${kpi({ icon: 'alert', label: 'Kendala teknis', value: openTickets.length, hint: `${c.ticketsInProgress ?? 0} sedang diproses`, tone })}
       ${kpi({ icon: 'signal', label: 'Operasi aktif', value: ops.length, hint: 'Informasi dari Desa dan Rescue', tone: ops.length ? 'orange' : '' })}
     </div>
+    ${D.weather?.current ? `<div class="card" style="background:var(--green-50); border:1px solid var(--green-200); padding:16px; margin-bottom:16px;"><b>Cuaca Terkini (Open-Meteo)</b><div style="margin-top:8px; display:flex; gap:16px;"><div class="fact"><small>Suhu</small><b>${D.weather.current.temperature_2m}°C</b></div><div class="fact"><small>Curah Hujan</small><b>${D.weather.current.precipitation} mm</b></div></div></div>` : ''}
     <div class="grid two">
       ${card({ title: 'Kendala teknis menunggu', sub: 'Hanya dapat diselesaikan JAGA Pusat', actions: `<a class="btn outline sm" href="#/kendala">Lihat semua</a>`, flush: true, body: openTickets.length ? `<div class="list">${openTickets.slice(0, 5).map(t => `<div class="row-item"><span class="row-icon ${t.priority === 'TINGGI' ? 'red' : t.priority === 'SEDANG' ? 'orange' : ''}">${icon('alert')}</span><div class="grow"><b>${esc(t.title)}</b><small>${esc(t.villageName || t.reporterName || 'Rescue')} · ${esc(TICKET_CAT[t.category] || t.category)} · ${esc(timeAgo(t.createdAt))}</small></div>${ticketStatusBadge(t.status)}</div>`).join('')}</div>` : empty('Tidak ada kendala', 'Semua laporan dari Desa dan Rescue sudah ditangani.', 'check') })}
       ${card({ title: 'Persediaan kalung', sub: 'Dari gudang Pusat ke desa', actions: `<a class="btn outline sm" href="#/kalung">Kelola</a>`, body: `<div class="op-facts" style="padding:0"><div class="fact"><small>Gudang Pusat</small><b>${c.devicesWarehouse ?? 0}</b></div><div class="fact"><small>Stok di desa</small><b>${c.devicesInVillageStock ?? 0}</b></div><div class="fact"><small>Terdaftar</small><b>${c.devicesRegistered ?? 0}</b></div></div>` })}
     </div>
     <div class="grid two">
-      ${card({ title: 'Cakupan wilayah', sub: 'Provinsi, desa, dan warga terdaftar', flush: true, body: provinces.length ? tableWrap(['Provinsi', 'Desa', 'Warga', 'Operasi aktif'], provinces.map(p => `<tr><td><b>${esc(p.name)}</b></td><td>${p.villages}</td><td>${p.residents}</td><td>${p.ops ? badge(`${p.ops} operasi`, 'red') : '—'}</td></tr>`)) : empty('Belum ada wilayah', '', 'map') })}
+      ${card({ title: 'Cakupan wilayah', sub: 'Provinsi, desa, dan warga terdaftar', flush: true, body: provinces.length ? tableWrap(['Provinsi', 'Desa', 'Warga'], provinces.map(p => `<tr><td><b>${esc(p.name)}</b></td><td>${p.villages}</td><td>${p.residents}</td></tr>`)) : empty('Belum ada wilayah', '', 'map') })}
       ${card({ title: 'Operasi aktif', sub: 'Desa dengan alarm Siaga atau Awas', flush: true, body: ops.length ? operationsTable(ops) : empty('Belum ada operasi aktif', 'Operasi dibuka JAGA Desa saat alarm Siaga atau Awas dibunyikan.', 'shield') })}
     </div>
     ${card({ title: 'Status desa dan sinkron', sub: 'Desa dianggap tidak aktif bila tidak ada sinyal dari gateway atau kalung selama 24 jam', flush: true, body: villageStatusTable() })}
@@ -200,7 +201,7 @@ function villageStatusTable() {
 function outcomeFacts(o) {
   if (!o) return empty('Belum ada data', '', 'check');
   const f = (label, value) => `<div class="fact"><small>${label}</small><b>${value ?? 0}</b></div>`;
-  return `<div class="op-facts" style="padding:0">${f('Dievakuasi', o.EVACUATED)}${f('Dinyatakan aman', o.SAFE)}${f('Tidak ditemukan', o.NOT_FOUND)}${f('Tidak terjangkau', o.UNREACHABLE)}${f('Masih ditangani', o.OPEN)}</div>`;
+  return `<div class="op-facts" style="padding:0; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 16px;">${f('Dievakuasi', o.EVACUATED)}${f('Dinyatakan aman', o.SAFE)}${f('Tidak ditemukan', o.NOT_FOUND)}${f('Tidak terjangkau', o.UNREACHABLE)}${f('Masih ditangani', o.OPEN)}</div>`;
 }
 const TICKET_CAT = { KALUNG: 'Kalung', GATEWAY: 'Gateway', AKUN: 'Akun', DATA: 'Data wilayah', APLIKASI: 'Aplikasi', LAINNYA: 'Lainnya' };
 const TICKET_STATUS = { OPEN: ['Menunggu', 'red'], IN_PROGRESS: ['Diproses', 'orange'], RESOLVED: ['Selesai', 'green'] };
@@ -222,7 +223,7 @@ function viewPusatDesa() {
   const rows = villageStats().filter(s => !f.province || s.village.province === f.province);
   const filterBar = `<div class="toolbar"><label class="field inline">Provinsi<select data-bind="pusat.province"><option value="">Semua provinsi</option>${provinceList().map(p => `<option value="${esc(p)}" ${f.province === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
     <small>${rows.length} desa${f.province ? ` di ${esc(f.province)}` : ' di seluruh provinsi'}</small></div>`;
-const body = rows.length ? tableWrap(['Desa', 'Warga', 'Kalung online', 'Baterai rendah', 'Sinyal terakhir', 'Kejadian', 'Status', ''], rows.map(s => {
+const body = rows.length ? tableWrap(['Desa', 'Warga', 'Kalung online', 'Baterai', 'Sinyal terakhir', 'Alarm', 'Kejadian', 'Status', 'Aksi'], rows.map(s => {
     const vs = (D.villageStat?.villages || []).find(v => v.villageId === s.village.id);
     const status = s.operation ? badge('Operasi aktif', 'red') : s.devices && s.online < s.devices ? badge('Perlu perhatian', 'orange') : badge('Normal', 'green');
     const head = s.village.headName ? `<small><b>Kades ${esc(s.village.headName)}</b>${s.village.headPhone ? ` · ${esc(s.village.headPhone)}` : ''}</small>` : '<small>Kades belum diisi</small>';
@@ -252,21 +253,21 @@ function residentsView({ canAdd, withVillage }) {
     .filter(r => !withVillage || ((!f.province || villageOf(r)?.province === f.province) && (!f.village || r.villageId === f.village)));
   const filters = [['all', 'Semua'], ['DISABILITAS', 'Disabilitas'], ['LANSIA', 'Lansia'], ['IBU_HAMIL', 'Ibu hamil'], ['LAINNYA', 'Lainnya']];
   const head = ['Warga', 'Kelompok rentan', 'Kemampuan evakuasi', 'Kalung', ...(canAdd ? [''] : [])];
-  const rowHtml = r => `<tr>
-      <td><div class="cell-flex"><span class="avatar-sm">${esc(initials(r.fullName))}</span><div><b>${esc(r.fullName)}</b><small>${r.age != null ? `${r.age} th` : 'Usia —'} · ${r.livesAlone ? 'tinggal sendiri' : 'bersama keluarga'}</small></div></div></td>
+  const rowCells = r => `<td><div class="cell-flex"><span class="avatar-sm">${esc(initials(r.fullName))}</span><div><b>${esc(r.fullName)}</b><small>${r.age != null ? `${r.age} th` : 'Usia —'} · ${r.livesAlone ? 'tinggal sendiri' : 'bersama keluarga'}</small></div></div></td>
       <td>${groupChips(r.vulnerabilities)}</td>
       <td>${abilityBadge(r.evacuationAbility)}${r.timeCriticalMedical ? `<small><b>Medis mendesak</b></small>` : ''}</td>
-      <td>${r.deviceId ? badge(r.deviceId, 'green', true) : badge('Belum berkalung', 'gray', true)}</td>${canAdd ? `<td class="row-actions"><button class="btn outline sm" data-action="edit-resident" data-id="${esc(r.id)}">Ubah</button> <button class="btn outline sm danger-text" data-action="delete-resident" data-id="${esc(r.id)}" data-name="${esc(r.fullName)}">Nonaktifkan</button></td>` : ''}</tr>`;
+      <td>${r.deviceId ? badge(r.deviceId, 'green', true) : badge('Belum berkalung', 'gray', true)}</td>${canAdd ? `<td class="row-actions"><button class="btn outline sm" data-action="edit-resident" data-id="${esc(r.id)}">Ubah</button> <button class="btn outline sm danger-text" data-action="delete-resident" data-id="${esc(r.id)}" data-name="${esc(r.fullName)}">Nonaktifkan</button></td>` : ''}`;
+  const rowHtml = r => `<tr class="group-member">${rowCells(r)}</tr>`;
   let body;
   if (!rows.length) body = empty('Tidak ada warga yang cocok', 'Ubah kata kunci atau filter.', 'users');
   else if (withVillage) {
     const groups = new Map();
     for (const r of rows) groups.set(r.villageId, [...(groups.get(r.villageId) || []), r]);
     const ordered = [...groups.entries()].sort((a, b) => villageName(a[0]).localeCompare(villageName(b[0]), 'id'));
-    body = tableWrap(head, ordered.flatMap(([id, list]) => {
+    body = `<div class="table-wrap"><table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>${ordered.map(([id, list]) => {
       const v = D.villages.find(x => x.id === id);
-      return [`<tr class="group-row"><td colspan="4"><b>${esc(villageName(id))}</b><small>${esc([v?.district, v?.regency, v?.province].filter(Boolean).join(', '))} · ${list.length} warga</small></td></tr>`, ...list.map(rowHtml)];
-    }));
+      return `<tbody class="resident-group"><tr class="group-row" data-action="toggle-group" data-village="${esc(id)}" role="button" tabindex="0" aria-expanded="true"><td colspan="${head.length}"><div class="cell-flex"><span class="chev"></span><div><b>${esc(villageName(id))}</b><small>${esc([v?.district, v?.regency, v?.province].filter(Boolean).join(', '))} · ${list.length} warga</small></div></div></td></tr>${list.map(rowHtml).join('')}</tbody>`;
+    }).join('')}</table></div>`;
   } else body = tableWrap(head, rows.map(rowHtml));
   const regionFilters = withVillage ? `<label class="field inline">Provinsi<select data-bind="pusat.province"><option value="">Semua</option>${provinceList().map(p => `<option value="${esc(p)}" ${f.province === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
       <label class="field inline">Desa<select data-bind="pusat.village"><option value="">Semua desa</option>${D.villages.filter(v => !f.province || v.province === f.province).map(v => `<option value="${esc(v.id)}" ${f.village === v.id ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}</select></label>` : '';
@@ -307,7 +308,8 @@ function viewPusatAturan() {
         title: `Draf revisi v${draft.version}`, sub: 'Ubah bobot lalu simpan. Aturan baru berlaku setelah diaktifkan.',
         actions: `<div class="page-actions"><button type="button" class="btn outline sm" data-action="rules-discard" data-id="${esc(draft.id)}">Buang draf</button><button type="submit" class="btn primary sm">Simpan draf</button><button type="button" class="btn lime sm" data-action="open-modal" data-modal="rules-activate" data-id="${esc(draft.id)}">Aktifkan…</button></div>`,
         flush: true,
-        body: `<div class="toolbar"><b style="font-size:13px">Ambang warna (skor minimum)</b>${th.map(([lv, lb]) => `<label class="field inline">${lb}<input type="number" name="th_${lv}" value="${esc(dTh[lv] ?? '')}" step="1" min="0" max="999" style="width:90px"></label>`).join('')}<small>Hijau = di bawah ambang kuning</small></div>
+        body: `<div class="form-grid" style="padding:20px 22px 0;border-bottom:1px solid var(--line-soft)"><label class="field wide">Nama draf aturan<input name="ruleName" value="${esc(draft.name)}" maxlength="160"></label><label class="field wide">Deskripsi (opsional)<input name="ruleDescription" value="${esc(draft.description || '')}" maxlength="2000" placeholder="mis. Standar operasional respons banjir 2026"></label></div>
+        <div class="toolbar"><b style="font-size:13px">Ambang warna (skor minimum)</b>${th.map(([lv, lb]) => `<label class="field inline">${lb}<input type="number" name="th_${lv}" value="${esc(dTh[lv] ?? '')}" step="1" min="0" max="999" style="width:90px"></label>`).join('')}<small>Hijau = di bawah ambang kuning</small></div>
         ${dRules.length ? tableWrap(['Faktor', 'Poin', 'Penjelasan yang tampil di Rescue', 'Aktif'], dRules.map((r, i) => `<tr><td><b>${esc(FACTOR_LABEL[r.factorKey] || r.factorKey)}</b><small>${cond(r)}</small></td>
           <td><input class="cell-input num" type="number" name="score_${i}" value="${esc(r.scoreDelta)}" step="1" min="-100" max="100"></td>
           <td><input class="cell-input" type="text" name="text_${i}" value="${esc(r.explanation)}" maxlength="500"></td>
@@ -344,7 +346,7 @@ function reportsTable() {
   if (!D.reports.length) return empty('Belum ada laporan pasca-operasi', 'Tim Rescue mengirimnya setelah operasi selesai.', 'file');
   return tableWrap(['Operasi', 'Tim', 'Ringkasan', 'Hasil', 'Dikirim'], D.reports.map(r => `<tr>
     <td><b>${esc(r.villageName || '—')}</b><small>${esc(r.operationOpenedAt ? dateTime(r.operationOpenedAt) : '')}</small></td>
-    <td>${esc(r.organizationName || '—')}<small>${esc(r.teamName || r.authorName || '')}</small></td><td style="max-width:360px">${esc(r.summary)}</td>
+    <td>${esc(r.organizationName || '—')}<small>${esc(r.teamName || r.authorName || '')}</small></td><td style="max-width:360px">${r.summary?.length > 90 ? `<details><summary style="cursor:pointer; color:var(--green-600); font-weight:600">${esc(r.summary.substring(0, 90))}... <span style="font-size:11px; margin-left:4px">(tampilkan)</span></summary><div style="margin-top:6px; color:var(--ink); font-weight:normal">${esc(r.summary)}</div></details>` : esc(r.summary)}</td>
     <td><small>Ditemukan ${r.foundCount} · Dievakuasi ${r.evacuatedCount} · Tidak ditemukan ${r.notFoundCount} · Tidak terjangkau ${r.unreachableCount}${r.distanceKm != null ? ` · ${r.distanceKm} km` : ''}</small></td>
     <td>${esc(dateTime(r.createdAt))}</td></tr>`));
 }
@@ -423,18 +425,23 @@ function viewPusatPengumuman() {
   const targetField = `<div class="field wide"><b style="font-size:13px">Tujuan</b>
     <div class="segmented" style="margin-top:8px">
       <button type="button" class="${target === 'ALL' ? 'active' : ''}" data-bind-target="ALL">${icon('building')} Semua desa</button>
-      <button type="button" class="${target === 'VILLAGES' ? 'active' : ''}" data-bind-target="VILLAGES">${icon('map')} Desa tertentu</button>
+
+      <button type="button" class="${target === 'VILLAGES' ? 'active' : ''}" data-bind-target="VILLAGES">${icon('check')} Desa tertentu</button>
     </div></div>`;
+  const regencyNames = [...new Set(villages.map(v => v.regency).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id'));
   const targetPicker = target === 'VILLAGES'
     ? `<fieldset class="wide"><legend>Desa tujuan <small>${f.announceVillages.length} dipilih</small></legend><div class="checks" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">${villages.length ? villages.map(v => `<label class="check"><input type="checkbox" data-toggle-village="${esc(v.id)}" ${f.announceVillages.includes(v.id) ? 'checked' : ''}><span>${esc(v.name)}<small>${esc(v.regency || v.province || '')}${v.headName ? ` · Kades ${esc(v.headName)}` : ''}</small></span></label>`).join('') : '<small>Belum ada desa terdaftar.</small>'}</div></fieldset>`
-    : '';
+    : target === 'REGENCY'
+      ? `<fieldset class="wide"><legend>Kabupaten tujuan</legend><div class="form-grid"><label class="field">Kabupaten<select data-bind="pusat.announceRegency"><option value="">Pilih kabupaten…</option>${regencyNames.length ? regencyNames.map(r => `<option value="${esc(r)}" ${f.announceRegency === r ? 'selected' : ''}>${esc(r)}</option>`).join('') : '<option value="">Belum ada desa terdaftar</option>'}</select></label></div><small>Pengumuman dikirim ke <b>semua desa</b> di kabupaten tersebut.</small></fieldset>`
+      : '';
+  const targetLabel = target === 'ALL' ? 'Kirim ke semua desa dan Rescue' : target === 'REGENCY' ? 'Kirim ke semua desa se-Kabupaten' : `Kirim ke ${f.announceVillages.length} desa`;
   const form = `<form data-form="announcement" class="card-body" style="display:grid;gap:16px">
     <label class="field wide">Judul<input name="title" data-keep="title" required minlength="3" maxlength="160" value="${esc(f.announceDraft.title)}" placeholder="mis. Uji kesiapsiagaan kalung bulan ini"></label>
     <label class="field wide">Isi pengumuman<textarea name="body" data-keep="body" required minlength="3" maxlength="2000" placeholder="Pesan untuk JAGA Desa dan JAGA Rescue di tujuan">${esc(f.announceDraft.body)}</textarea></label>
     <div class="form-grid"><label class="field">Prioritas<select name="priority" data-keep="priority"><option value="INFO" ${f.announceDraft.priority === 'INFO' ? 'selected' : ''}>Informasi</option><option value="PENTING" ${f.announceDraft.priority === 'PENTING' ? 'selected' : ''}>Penting (tampil di banner)</option></select></label>
       <label class="field">Berlaku (jam)<input name="expiresInHours" data-keep="expiresInHours" type="number" min="1" max="2160" value="${esc(f.announceDraft.expiresInHours)}"></label></div>
     ${targetField}${targetPicker}
-    <button class="btn primary" type="submit">${icon('bell')} ${target === 'ALL' ? 'Kirim ke semua desa dan Rescue' : 'Kirim ke ' + f.announceVillages.length + ' desa'}</button></form>`;
+    <button class="btn primary" type="submit">${icon('bell')} ${targetLabel}</button></form>`;
   const list = D.announcements.length ? `<div class="list">${D.announcements.map(a => `<div class="row-item"><span class="row-icon ${a.priority === 'PENTING' ? 'orange' : ''}">${icon('bell')}</span><div class="grow"><b>${esc(a.title)}</b><small>${esc(a.body)}</small><small>${esc(timeAgo(a.createdAt))}${a.expiresAt ? ` · berlaku sampai ${esc(dateTime(a.expiresAt))}` : ''}</small></div>${a.villageIds?.length ? badge(`${a.villageIds.length} desa`, 'blue', true) : badge('Semua desa', 'green', true)}${a.priority === 'PENTING' ? badge('Penting', 'orange') : badge('Info', 'gray', true)}<button class="btn outline sm danger-text" data-action="announcement-delete" data-id="${esc(a.id)}">Hapus</button></div>`).join('')}</div>` : empty('Belum ada pengumuman', '', 'bell');
   return `${pageHead('Pengumuman', 'Kirim pembaruan operasional ke seluruh desa atau ke desa tertentu. Data kepala desa diisi JAGA Pusat dan dipakai sebagai penerima kontak. Pengumuman penting tampil sebagai banner.')}
     <div class="grid two">${card({ title: 'Pengumuman baru', flush: true, body: form })}${card({ title: 'Riwayat pengumuman', sub: `${D.announcements.length} pengumuman`, flush: true, body: list })}</div>`;
@@ -453,13 +460,11 @@ function viewPusatPlatform() {
       ${toggle('rescue_view_contacts', 'Kontak darurat dan telepon warga', 'Untuk menghubungi pendamping atau keluarga.')}
       ${toggle('rescue_view_gps', 'Posisi GPS kalung langsung', 'Bila dimatikan, Rescue hanya melihat lokasi rumah.')}</div></fieldset>
     <button class="btn primary" type="submit">Simpan pengaturan</button></form>`;
-  const matrix = tableWrap(['Data', 'JAGA Desa', 'JAGA Rescue', 'JAGA Pusat'], gov.matrix.map(r => `<tr><td><b>${esc(r.field)}</b></td><td>${esc(r.desa)}</td><td>${esc(r.rescue)}</td><td>${esc(r.pusat)}</td></tr>`));
   const access = Object.entries(gov.rescueAccess30d || {});
   return `${pageHead('Platform & data', 'Pengaturan global, versi sistem, dan tata kelola data sensitif. NIK tidak ditampilkan di antarmuka mana pun.')}
     <div class="stack"><div class="grid two">${card({ title: 'Pengaturan platform', flush: true, body: form })}
       <div class="stack">${card({ title: 'Versi dan penyebaran', body: `<div class="op-facts" style="padding:0"><div class="fact"><small>Aplikasi</small><b>v${esc(info.version.app)}</b></div><div class="fact"><small>Penyimpanan</small><b>${esc(info.version.storage)}</b></div><div class="fact"><small>Node</small><b>${esc(info.version.node)}</b></div></div>` })}
         ${card({ title: 'Versi firmware kalung', sub: 'Sebaran pembaruan di lapangan', flush: true, body: info.firmware.length ? tableWrap(['Versi', 'Jumlah kalung'], info.firmware.map(f => `<tr><td><b>${esc(f.version)}</b></td><td>${f.count}</td></tr>`)) : empty('Belum ada kalung') })}</div></div>
-    ${card({ title: 'Siapa melihat apa', sub: 'Berlaku sesuai kebijakan di atas', flush: true, body: matrix })}
     <div class="grid two">${card({ title: 'Persetujuan pendataan', body: `<div class="op-facts" style="padding:0"><div class="fact"><small>Warga terdaftar</small><b>${gov.consent.total}</b></div><div class="fact"><small>Sudah berpersetujuan</small><b>${gov.consent.consented}</b></div><div class="fact"><small>NIK tersimpan</small><b>${gov.nikStored}</b></div></div>` })}
       ${card({ title: 'Akses Rescue ke data warga (30 hari)', flush: true, body: access.length ? `<div class="list">${access.map(([k, v]) => `<div class="row-item"><div class="grow"><b>${esc(String(k).replaceAll('_', ' '))}</b></div><b>${v}</b></div>`).join('')}${gov.recentAccess.slice(0, 5).map(r => `<div class="row-item"><div class="grow"><small>${esc(dateTime(r.at))}</small><small>${esc(r.summary)}</small></div></div>`).join('')}</div>` : empty('Belum ada akses', 'Setiap pembukaan data warga oleh Rescue tercatat di sini.', 'shield') })}</div></div>`;
 }
@@ -526,8 +531,10 @@ function viewDesaBeranda() {
   const banner = op ? operationCard(op) : callout({ tone: 'blue', icon: 'shield', title: 'Tidak ada operasi berjalan', text: 'Operasi dibuka otomatis saat Anda membunyikan alarm Siaga atau Awas untuk seluruh desa.', actions: `<a class="btn primary sm" href="#/alarm">${icon('bell')} Buka alarm</a>` });
   const breakdown = D.safety?.breakdown || [];
   const emergencyCard = `<div class="emergency-card"><div><b>Sinyal darurat</b><small>Satu tombol: seluruh kalung di desa berbunyi dan bergetar, operasi Rescue dibuka. Pakai hanya saat bencana terjadi.</small></div><button class="btn danger" data-action="open-modal" data-modal="emergency">${icon('bell')} Kirim sinyal darurat</button></div>`;
+  const w = D.weather?.current;
+  const weatherCard = w ? `<div class="card" style="background:var(--green-50); border:1px solid var(--green-200); padding:16px;"><b>Cuaca Terkini (Open-Meteo)</b><div style="margin-top:8px; display:flex; gap:16px;"><div class="fact"><small>Suhu</small><b>${w.temperature_2m}°C</b></div><div class="fact"><small>Curah Hujan</small><b>${w.precipitation} mm</b></div></div></div>` : '';
   return `${pageHead('Beranda desa', 'Kondisi terkini warga rentan, kalung, dan kejadian di desa Anda.')}
-    <div class="stack">${emergencyCard}${banner}
+    <div class="stack">${weatherCard}${emergencyCard}${banner}
     <div class="kpis">
       ${kpi({ icon: 'users', label: 'Warga terdaftar', value: D.residents.length, hint: `${D.residents.filter(r => r.deviceId).length} berkalung` })}
       ${kpi({ icon: 'device', label: 'Kalung online', value: `${assigned.filter(d => d.online).length}/${assigned.length}`, hint: `${assigned.filter(d => num(d.battery) !== null && d.battery <= 20).length} baterai rendah`, tone: 'blue' })}
@@ -701,7 +708,7 @@ function viewRescueLaporan() {
     <label class="field">Ringkasan operasi<textarea name="summary" required minlength="10" maxlength="4000" placeholder="Area yang disisir, hambatan di lapangan, dan hal yang perlu dicatat"></textarea></label>
     <button class="btn primary" type="submit">${icon('file')} Kirim laporan</button></form>` : empty('Belum ada operasi', 'Laporan dapat dibuat setelah JAGA Desa membuka operasi.', 'file');
   return `${pageHead('Laporan operasi', 'Ringkasan pasca-operasi untuk JAGA Desa dan JAGA Pusat: hasil pencarian, hambatan, dan jarak tempuh.')}
-    <div class="grid two">${card({ title: 'Laporan baru', flush: true, body: form })}${card({ title: 'Laporan organisasi Anda', sub: `${D.reports.length} laporan`, flush: true, body: reportsTable() })}</div>`;
+    <div class="stack">${card({ title: 'Laporan baru', flush: true, body: form })}${card({ title: 'Laporan organisasi Anda', sub: `${D.reports.length} laporan`, flush: true, body: reportsTable() })}</div>`;
 }
 
 const TEAM_COLORS = ['#1d4ed8', '#7c3aed', '#0f766e', '#b45309', '#be185d', '#4d7c0f'];
@@ -899,6 +906,16 @@ function renderNavbar() {
 
 /* ---------------------------------------------------------------- Modal */
 const modalRoot = () => $('#modalRoot');
+let pendingConfirm = null;
+function askConfirm({ title = 'Yakin?', sub = '', message = '', confirmLabel = 'Lanjutkan', danger = false, run: action }) {
+  pendingConfirm = { action };
+  openModal({ type: 'confirm', title, sub, message, confirmLabel, danger });
+}
+function confirmModal(payload) {
+  return modalShell({ title: payload.title, sub: payload.sub,
+    body: `<div class="confirm-msg">${payload.message}</div>`,
+    foot: `<button class="btn outline" data-action="close-modal">Batal</button><button class="btn ${payload.danger ? 'danger' : 'primary'}" data-action="confirm-do">${esc(payload.confirmLabel)}</button>` });
+}
 function modalShell({ title, sub = '', body, foot, wide = false }) {
   return `<div class="modal-backdrop" data-action="close-modal-bg"><div class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
     <div class="modal-head"><div><h2>${esc(title)}</h2>${sub ? `<p>${esc(sub)}</p>` : ''}</div><button class="icon-btn" data-action="close-modal" aria-label="Tutup">${icon('x')}</button></div>
@@ -1174,7 +1191,7 @@ function renderModal() {
   if (!m) { root.innerHTML = ''; return; }
   const op = D.operations.find(o => o.id === m.id);
   const html = m.type === 'resident' ? residentModal() : m.type === 'account' ? accountModal() : m.type === 'shelter' ? shelterModal(m.id) : m.type === 'device-new' ? deviceNewModal() : m.type === 'account-edit' ? accountEditModal(m.id) : m.type === 'dispatch' ? dispatchModal(m.id) : m.type === 'resident-edit' ? residentEditModal(m) : m.type === 'device-key' ? deviceKeyModal() : m.type === 'device-dist' ? deviceDistModal(m.id) : m.type === 'ticket-resolve' ? ticketResolveModal(m.id) : m.type === 'rules-activate' ? rulesActivateModal(m.id) : m.type === 'sos' ? sosModal(m) : m.type === 'route' ? routeModal(m) : m.type === 'village-head' ? villageHeadModal(m.id) : m.type === 'alarm-confirm' ? alarmConfirmModal(m.payload) : m.type === 'emergency' ? emergencyModal()
-    : m.type === 'water' && op ? waterModal(op) : m.type === 'close-op' && op ? closeOpModal(op) : '';
+    : m.type === 'water' && op ? waterModal(op) : m.type === 'close-op' && op ? closeOpModal(op) : m.type === 'confirm' ? confirmModal(m) : '';
   root.innerHTML = html;
   const form = $('#modalForm', root);
   if (form && m.type === 'account') syncAccountForm(form);
@@ -1182,7 +1199,7 @@ function renderModal() {
   if (m.type === 'sos') loadSosLog(m);
 }
 function openModal(modal) { state.ui.modal = modal; renderModal(); }
-function closeModal() { state.ui.modal = null; renderModal(); flushPending(); }
+function closeModal() { state.ui.modal = null; pendingConfirm = null; renderModal(); flushPending(); }
 function syncAccountForm(form) {
   const role = form.role.value;
   $('[data-for=org]', form).hidden = role === 'PUSAT';
@@ -1228,9 +1245,16 @@ const ACTIONS = {
   logout() { JagaApi.logout(); },
   'open-modal'(el) { openModal({ type: el.dataset.modal, id: el.dataset.id }); },
   'close-modal'() { closeModal(); },
+  'confirm-do'() { const job = pendingConfirm; closeModal(); if (job) job.action(); },
   'close-modal-bg'(el, event) { if (event.target === el) closeModal(); },
   severity(el) { state.ui.alarm.severity = el.dataset.value; render(); },
   'resident-filter'(el) { state.ui.residentFilter = el.dataset.value; render(); },
+  'toggle-group'(el) {
+    const tbody = el.closest('tbody.resident-group');
+    if (!tbody) return;
+    const closed = tbody.classList.toggle('closed');
+    el.setAttribute('aria-expanded', String(!closed));
+  },
   'incident-filter'(el) { state.ui.incidentFilter = el.dataset.value; render(); },
   'incident-status'(el) { run(() => JagaApi.updateIncidentStatus(el.dataset.id, el.dataset.status), 'Status diperbarui'); },
   'export-csv'(el) { exportCsv(el.dataset.kind); },
@@ -1258,8 +1282,12 @@ const ACTIONS = {
     catch (error) { toast(`Gagal: ${error.message}`, true); }
   },
   'delete-resident'(el) {
-    if (!confirm(`Nonaktifkan ${el.dataset.name}? Datanya disembunyikan dan kalungnya dilepas, riwayat tetap tersimpan.`)) return;
-    run(() => JagaApi.deleteResident(el.dataset.id), 'Warga dinonaktifkan');
+    askConfirm({
+      title: 'Nonaktifkan warga?', sub: 'Kalung dilepas, data disembunyikan',
+      message: `Nonaktifkan <b>${esc(el.dataset.name)}</b>? Datanya disembunyikan dan kalungnya dilepas, riwayat tetap tersimpan.`,
+      confirmLabel: 'Nonaktifkan', danger: true,
+      run: () => run(() => JagaApi.deleteResident(el.dataset.id), 'Warga dinonaktifkan')
+    });
   },
   'track-start'() { const select = $('#trackTeam'); if (select?.value) startTracking(select.value); },
   'track-stop'() { stopTracking(); },
@@ -1272,19 +1300,32 @@ const ACTIONS = {
   'ticket-filter'(el) { state.ui.pusat.ticketFilter = el.dataset.value; render(); },
   'ticket-status'(el) { run(() => JagaApi.updateTicket(el.dataset.id, { status: el.dataset.status }), 'Kendala mulai ditangani'); },
   'account-delete'(el) {
-    if (!confirm(`Hapus akun ${el.dataset.name}? Pengguna ini tidak dapat masuk lagi.`)) return;
-    run(() => JagaApi.deleteAccount(el.dataset.id), 'Akun dihapus');
+    askConfirm({
+      title: 'Hapus akun?', sub: 'Tidak dapat dibatalkan',
+      message: `Hapus akun <b>${esc(el.dataset.name)}</b>? Pengguna ini tidak dapat masuk lagi.`,
+      confirmLabel: 'Hapus akun', danger: true,
+      run: () => run(() => JagaApi.deleteAccount(el.dataset.id), 'Akun dihapus')
+    });
   },
   async 'rules-revise'(el) { const r = await run(() => JagaApi.reviseRuleSet(el.dataset.id), 'Draf revisi dibuat'); if (r) { state.ui.pusat.ruleEditing = false; location.hash = '#/aturan'; } },
   'rules-edit'() { state.ui.pusat.ruleEditing = !state.ui.pusat.ruleEditing; render(); },
   'rules-discard'(el) {
-    if (!confirm('Buang draf revisi ini? Perubahan yang belum diaktifkan akan hilang.')) return;
-    run(() => JagaApi.publishRuleSet(el.dataset.id, { action: 'archive' }), 'Draf dibuang');
+    askConfirm({
+      title: 'Buang draf revisi?',
+      message: 'Buang draf revisi ini? Perubahan yang belum diaktifkan akan hilang.',
+      confirmLabel: 'Buang draf', danger: true,
+      run: () => run(() => JagaApi.publishRuleSet(el.dataset.id, { action: 'archive' }), 'Draf dibuang')
+    });
   },
   async 'shelter-delete'(el) {
     const s = D.shelters.find(item => item.id === el.dataset.id);
-    if (!s || !confirm(`Hapus titik evakuasi "${s.name}"?`)) return;
-    run(() => JagaApi.deleteShelter(s.id), 'Titik evakuasi dihapus');
+    if (!s) return;
+    askConfirm({
+      title: 'Hapus titik evakuasi?',
+      message: `Hapus titik evakuasi "<b>${esc(s.name)}</b>"? Tindakan ini tidak dapat dibatalkan.`,
+      confirmLabel: 'Hapus', danger: true,
+      run: () => run(() => JagaApi.deleteShelter(s.id), 'Titik evakuasi dihapus')
+    });
   },
   async 'emergency-send'() {
     const button = $('#confirmSend'), villageId = ownVillageId();
@@ -1362,10 +1403,13 @@ const FORMS = {
       scoreDelta: Number(data.get(`score_${i}`)), explanation: String(data.get(`text_${i}`) || '').trim(), active: data.has(`active_${i}`)
     }));
     if (rules.some(r => !Number.isFinite(r.scoreDelta) || !r.explanation)) return toast('Poin harus angka dan penjelasan tidak boleh kosong', true);
+    const name = String(data.get('ruleName') || '').trim();
+    if (name.length < 3) return toast('Nama draf minimal 3 huruf', true);
     const levels = ['SEGERA_TINJAU', 'RESPONS_CEPAT', 'DARURAT'];
     const mins = levels.map(lv => Number(data.get(`th_${lv}`)));
     if (mins.some(n => !Number.isFinite(n)) || !(mins[0] < mins[1] && mins[1] < mins[2])) return toast('Ambang harus berurutan: kuning < oranye < merah', true);
 return run(async () => {
+      await JagaApi.updateRuleSet(id, { name, description: String(data.get('ruleDescription') || '').trim() || null });
       await JagaApi.saveRules(id, rules);
       for (let i = 0; i < levels.length; i += 1) await JagaApi.saveThreshold(id, levels[i], mins[i]);
       state.ui.pusat.ruleEditing = false;
@@ -1383,8 +1427,17 @@ return run(async () => {
   },
   announcement(form) {
     const d = Object.fromEntries(new FormData(form).entries());
-    const villageIds = state.ui.pusat.announceTarget === 'VILLAGES' ? state.ui.pusat.announceVillages.slice() : null;
-    if (state.ui.pusat.announceTarget === 'VILLAGES' && !villageIds.length) return toast('Pilih minimal satu desa tujuan', true);
+    const target = state.ui.pusat.announceTarget;
+    let villageIds = null;
+    if (target === 'VILLAGES') {
+      villageIds = state.ui.pusat.announceVillages.slice();
+      if (!villageIds.length) return toast('Pilih minimal satu desa tujuan', true);
+    } else if (target === 'REGENCY') {
+      const regency = (state.ui.pusat.announceRegency || '').trim();
+      if (!regency) return toast('Pilih kabupaten tujuan', true);
+      villageIds = D.villages.filter(v => v.regency === regency).map(v => v.id);
+      if (!villageIds.length) return toast('Tidak ada desa di kabupaten tersebut', true);
+    }
     return run(() => JagaApi.createAnnouncement({ ...d, expiresInHours: Number(d.expiresInHours), villageIds }), 'Pengumuman terkirim').then(ok => { if (ok) { state.ui.pusat.announceDraft = { title: '', body: '', expiresInHours: '72' }; form.reset(); } });
   },
   platform(form) {
@@ -1605,6 +1658,12 @@ async function loadData(silent = false) {
       const draft = D.ruleSets.find(x => x.status === 'DRAFT');
       D.draftRules = draft ? await safe(JagaApi.ruleSet(draft.id), null) : null;
       D.draftThresholds = draft ? await safe(JagaApi.thresholds(draft.id), []) : [];
+    }
+    if (role === 'pusat' || role === 'desa') {
+      try {
+        const wRes = await fetch('https://api.open-meteo.com/v1/forecast?latitude=-6.2&longitude=106.8&current=temperature_2m,precipitation,weather_code&timezone=auto');
+        if (wRes.ok) D.weather = await wRes.json();
+      } catch (e) {}
     }
     state.error = '';
   } catch (error) {

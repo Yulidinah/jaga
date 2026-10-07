@@ -159,6 +159,7 @@ const JagaApi = {
   createDevice(data) { return this.send('POST', '/devices', data); },
   distributeDevice(id, villageId) { return this.send('POST', `/devices/${encodeURIComponent(id)}/distribute`, { villageId: villageId || null }); },
   reviseRuleSet(id) { return this.send('POST', `/rulesets/${encodeURIComponent(id)}/revise`, {}); },
+  updateRuleSet(id, data) { return this.send('PATCH', `/rulesets/${encodeURIComponent(id)}`, data); },
   saveRules(id, rules) { return this.request(`/rulesets/${encodeURIComponent(id)}/rules`, { method: 'PUT', body: JSON.stringify({ rules }) }); },
   publishRuleSet(id, body) { return this.send('POST', `/rulesets/${encodeURIComponent(id)}/publish`, body); },
   saveThreshold(ruleSetId, level, minScore) { return this.send('POST', '/thresholds', { ruleSetId, level, minScore }); },

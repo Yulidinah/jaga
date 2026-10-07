@@ -307,7 +307,12 @@ atas judul halaman. Di layar sempit sidebar menjadi baris menu yang dapat digese
 
 - **Siaga, Waspada, dan penanganan insiden** sepenuhnya di **JAGA Desa dan JAGA Rescue**. Hanya JAGA Desa yang membunyikan alarm (termasuk tombol sinyal darurat, yang wajib `confirm: true`). Pusat hanya menerima informasinya (operasi aktif, riwayat) untuk dipantau; Pusat tidak menangani insiden yang belum ditangani.
 - **JAGA Pusat** menangani hal yang tidak bisa diselesaikan di tingkat desa: ketersediaan dan distribusi **kalung**, gateway, **akun**, data wilayah, **aturan prioritas**, **pengumuman** (ke seluruh desa atau ke desa tertentu), dan **kontak kepala desa** (nama + nomor yang dipakai untuk menghubungi desa). Desa dan Rescue melaporkannya lewat menu **Kendala teknis**.
-- **Alur kalung:** Pusat mendaftarkan kalung ke gudang, mendistribusikannya ke desa, Desa memasangkannya pada warga. Desa tidak mendaftarkan kalung sendiri; kalung yang terpasang pada warga tidak dapat dipindahkan sebelum dilepas.
+- **Alur kalung:**
+  1. **Input:** JAGA Pusat mendaftarkan kalung ke sistem. Di lingkungan produksi, ini dilakukan secara massal (bulk import CSV atau via API dari pabrik), bukan satu per satu.
+  2. **Key (Kunci):** Key yang dihasilkan saat kalung didaftarkan adalah token rahasia (secret) yang dimasukkan ke dalam firmware kalung agar dapat terautentikasi secara aman ke MQTT broker/server JAGA.
+  3. **Distribusi:** JAGA Pusat mendistribusikan kalung ke desa. Di aplikasi produksi, ada fitur **distribusi massal** (pilih banyak kalung sekaligus, lalu kirim ke satu desa).
+  4. **Aktivasi:** Kalung baru benar-benar diaktifkan dan datanya berguna ketika JAGA Desa memasangkan kalung tersebut kepada warga rentan di desanya.
+  5. **Penanganan Kerusakan:** Kalung yang rusak, hilang, atau tidak berfungsi lagi **tidak dihapus** dari basis data agar riwayat audit (log) tetap utuh. Statusnya hanya diubah menjadi `BROKEN` atau `LOST`. Desa tidak mendaftarkan kalung sendiri; kalung yang terpasang pada warga tidak dapat dipindahkan sebelum dilepas.
 - **Siapa itu JAGA Rescue:** organisasi penanggap apa pun (BPBD, Damkar, Basarnas, Polisi, TNI, layanan kesehatan, **relawan**). Relawan desa (mis. Tim Siaga Gampong, Tagana, linmas, pemuda desa) juga berperan sebagai Rescue: dibuatkan akun Rescue berjenis relawan dengan wilayah desanya. Data pilot memuat contoh "Tim Siaga Gampong Leubok Pusaka" (`rescue.siagadesa@jaga.id`).
 - **Cakupan Pusat:** satu peran JAGA Pusat dengan hierarki wilayah (provinsi, kabupaten, kecamatan, desa). Saat ini Pusat melihat seluruh provinsi dan dapat memfilter per provinsi. Model data sudah mendukung pembagian lebih lanjut (wilayah layanan per organisasi), sehingga pengelola tingkat provinsi dapat ditambahkan nanti sebagai akun Pusat dengan wilayah terbatas tanpa mengubah struktur.
 
@@ -654,7 +659,7 @@ dummy. Lokasi pilot, alasan, dan skala data ada di bagian "Lokasi Pilot" di atas
 - `POST /api/announcements` menerima `villageIds` (daftar UUID desa tujuan, maks. 200, divalidasi); tanpa `villageIds` pengumuman menjangkau seluruh desa. `PATCH` salah satu kolom: `announcements.village_ids uuid[]` + GIN index.
 - `GET /api/announcements` memfilter sesuai jangkauan: Pusat melihat semua; desa hanya menerima pengumuman yang ditujukan padanya (`scopeIds`).
 - Form memilih "Semua desa" / "Desa tertentu" dengan daftar periksa desa; badge tujuan di riwayat; prioritas "Penting" tampil banner; draf ketikan tidak hilang saat berpindah mode tujuan.
-- Migration baru: `supabase/migrations/202610100001_pengumuman_dan_kepala_desa.sql` (juga menambah kolom kepala desa). **Belum dijalankan di Supabase** sebelum fitur ini aktif.
+- Migration baru: `supabase/migrations/202610100001_pengumuman_dan_kepala_desa.sql` (juga menambah kolom kepala desa). ~~Belum dijalankan di Supabase~~ → **sudah diterapkan sejak 7 Okt 2026**.
 
 **Kepala desa milik JAGA Pusat**
 - `listVillages` mengembalikan `headName`/`headPhone`; endpoint baru `PATCH /api/villages/:id` (khusus role Pusat) untuk memperbarui kontak — tercatat di audit (`VILLAGE_HEADS`).
@@ -669,3 +674,42 @@ dummy. Lokasi pilot, alasan, dan skala data ada di bagian "Lokasi Pilot" di atas
 - Pill navbar Pusat tidak lagi menampilkan hitungan "X/Y kalung" tersambung, cukup "Terhubung".
 - `seed.ts` disesuaikan: kontak kepala desa (nama + nomor), satu pengumuman contoh yang ditujukan ke desa tetangga, dan pembersihan kolom `flood_*` yang sudah dihapus dari database agar reseed tidak gagal.
 - Verifikasi: `npm run check`, `npm run build`, `npm run smoke` (215 lulus), dan uji endpoint fitur baru (kontak kades, pengumuman bertarget, cakupan desa) 11/11 lulus.
+
+## 7 Okt 2026 — Audit kelayakan, perbaikan UX, dan putusan kesiapan produksi
+
+**Status data & migrasi**
+- Semua 12 migrasi kini **sudah diterapkan** di Supabase live — termasuk `202610100001_pengumuman_dan_kepala_desa.sql` yang sebelumnya belum berjalan (koreksi catatan "Belum dijalankan" di entri 6 Okt): terkonfirmasi `villages.head_name/head_phone` dan `announcements.village_ids` ada; `202610080001` terverifikasi via enum (`EVAKUASI` ditolak, `AWAS`/`NOT_FOUND`/`UNREACHABLE` valid).
+- Akibatnya error 400 "kontak kepala desa" tertutup. **Belum**: data tidak di-seed ulang setelah migrasi → `head_name/head_phone` masih kosong (NULL), pengumuman contoh hanya 1 dari 2 (seed `seed.ts` disiapkan untuk keduanya). Putusan: jalankan `node scripts/seed-supabase.mjs --reset` saat siap mengisi data pilot.
+
+**Perbaikan antarmuka (frontend)**
+- Peta: layer "jalan" diganti ke **Esri World Street Map** (`app.js` ~741), `downloadTiles` disinkronkan dengan format tile `{z}/{y}/{x}`; `service-worker.js` mengizinkan host `server.arcgisonline.com`.
+- Skala global diperkecil agar muat di layar laptop 14" pada zoom 100%: sidebar 252px, judul/tabel/kartu/tombol dirampingkan, margin halaman 36px (`styles.css`). Margin halaman depan dikoreksi (`min(1320px, 100% - clamp(64~128px))`) sehingga konten tidak "memakan layar".
+- Kartu sebaris dibuat setinggi sama (flex column + `flex:1`) — menghapus ruang kosong di bawah kartu pendek.
+- Rescue "Laporan operasi" (`#/laporan`): kartu "Laporan baru" & "Laporan organisasi Anda" ditumpuk **atas-bawah** (bukan samping) — tabel tidak lagi memicu scroll kanan-kiri; font seragam.
+- Dropdown: `appearance:none` + chevron kustom agar konsisten antarbrowser.
+- Error toast kini menampilkan `payload.detail` dari API → akar masalah (mis. penolakan DB) langsung terlihat.
+- Data warga terdaftar (Pusat): grup per desa **collapsible** (klik baris desa untuk lipat/buka, chevron animasi).
+- Pengumuman: tujuan baru **"Se-Kabupaten"** — pilih kabupaten, dikirim ke semua desa di kabupaten itu (dipetakan ke `villageIds` di front-end); label tombol & validasi disesuaikan.
+- Konfirmasi berbahaya (nonaktifkan warga, hapus akun, buang draf, hapus titik evakuasi) diganti dari `confirm()` browser ke **modal konfirmasi kustom** (`askConfirm`, aksi `confirm-do`).
+- Draf aturan prioritas: editor kini punya **nama draf + deskripsi** yang disimpan via `PATCH /api/rulesets/:id` (`JagaApi.updateRuleSet` ditambahkan di `api-client.js`; rute backend sudah ada).
+
+**Putusan audit kelayakan (ringkas)**
+- Web **siap dipakai sebagai pilot operasional sungguhan** (PUSAT–DESA–RESCUE): RBAC/scope, offline/PWA, peta, alur alarm–operasi–laporan teruji (215/215 smoke).
+- **Belum siap produksi lapangan**: tidak ada perangkat kalung/gateway nyata (firmware masih contoh), SMS/WA/email/push tanpa delivery nyata (hanya antre `QUEUED`), BMKG/BNPB hanya istilah manual, status receipt `SENT` dihitung saat polling bukan saat alarm berbunyi.
+- Prioritas perbaikan yang diputuskan:
+  1. Matikan jejak demo di produksi: `SEED_DEMO_PASSWORDS=false`, `JAGA_DEMO_HEARTBEAT=false`, rapikan urutan `store-boot.ts` (guard memori bisa dilewati), nonaktifkan `X-JAGA-Role` (dev bypass yang ikut diekspos di `/api/config`).
+  2. Keamanan koneksi: SSE bocor lintas desa (`realtime.ts` mengirim event tanpa `villageId` ke semua subscriber) + batasi koneksi; rate limit endpoint ingest device/gateway; timeout/retry ke Supabase.
+  3. Sembunyikan detail DB di respons error (502/503); isi `ip_address`/`user_agent` di audit (saat ini null padahal audit menyimpan salinan PII warga).
+  4. Perbarui `README.md` (daftar migrasi berhenti di `…080002`; tambah `…090001` & `…100001`) dan bagian kalung di dokumen ini (hapus referensi JAGA Sense yang sudah dihapus); tambah skrip verifikasi migrasi.
+  5. Bila menuju produksi penuh: RLS policy di DB, kunci perangkat acak di seed, worker pengirim notifikasi nyata, perangkat kalung/gateway sungguhan.
+
+**Verifikasi hari ini**
+- `npm run check`, `npm run build`, `npm run smoke` (215/215 lulus); `node --check` untuk `app.js` & `api-client.js`; keseimbangan kurung `styles.css` (379/379). Status migrasi live dicek via probe PostgREST read-only — terpasang penuh.
+
+### Ambang Warna Aktif (Thresholds)
+Ambang warna aktif menentukan batas total skor kerentanan untuk pengelompokan prioritas. Misalnya, jika skor di atas 80 maka warga masuk kategori Merah (Kritis), 50-79 Oranye, dan seterusnya. Aturan dan bobot skor (seperti Lansia +20, Hamil +15) diatur di Aturan Prioritas Banjir.
+
+### Siapa Melihat Apa (Matrix Akses Data)
+- **JAGA Pusat**: Hanya melihat data agregat (jumlah warga rentan). Tidak melihat data detail/NIK warga.
+- **JAGA Desa**: Melihat data detail dan status warganya sendiri (karena mereka yang mendaftarkan), tapi NIK tetap disembunyikan/di-masking.
+- **JAGA Rescue**: Sama sekali diblokir dari melihat NIK dan privasi warga secara normal. Rescue baru diberi hak akses 30 hari ke data warga (lokasi rumah, kondisi medis, nomor darurat) HANYA saat status bencana (Siaga/Awas) aktif agar bisa mengevakuasi mereka.
