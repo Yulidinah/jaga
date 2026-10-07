@@ -10,6 +10,7 @@ export type EventType =
   | "alert.created"
   | "alert.receipt"
   | "resident.created"
+  | "shelter.updated"
   | "resident.updated"
   | "device.updated"
   | "team.updated"
@@ -21,7 +22,10 @@ export type EventType =
   | "notification.created"
   | "operation.opened"
   | "operation.updated"
-  | "operation.closed";
+  | "operation.closed"
+  | "announcement.created"
+  | "ticket.created"
+  | "ticket.updated";
 
 interface Subscriber {
   res: ServerResponse;

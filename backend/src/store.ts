@@ -49,7 +49,6 @@ export const TABLE_ID_KIND: Record<string, IdKind> = {
   regencies: "text",
   districts: "text",
   villages: "uuid",
-  hamlets: "uuid",
   organizations: "uuid",
   organization_service_areas: "composite",
   profiles: "uuid",
@@ -84,6 +83,10 @@ export const TABLE_ID_KIND: Record<string, IdKind> = {
   attachments: "uuid",
   audit_logs: "identity",
   operations: "uuid",
+  support_tickets: "uuid",
+  announcements: "uuid",
+  platform_settings: "composite",
+  operation_reports: "uuid",
   sync_operations: "uuid",
   internal_accounts: "composite"
 };
@@ -99,9 +102,9 @@ export const identityTables = new Set(
 
 /** Tabel yang punya kolom created_at / updated_at di skema Supabase (migrasi 001 + 002). */
 export const HAS_CREATED_AT = new Set([
-  "villages", "hamlets", "organizations", "profiles", "residents", "devices", "gateways", "incidents",
+  "villages", "organizations", "profiles", "residents", "devices", "gateways", "incidents",
   "incident_status_history", "priority_rule_sets", "priority_rules", "incident_assessments",
-  "priority_recommendations", "priority_overrides", "rescue_teams", "evacuation_routes", "alert_commands", "operations",
+  "priority_recommendations", "priority_overrides", "rescue_teams", "evacuation_routes", "alert_commands", "operations", "support_tickets", "announcements", "operation_reports",
   "notifications", "attachments", "audit_logs", "sync_operations", "hazard_zones", "priority_thresholds"
 ]);
-export const HAS_UPDATED_AT = new Set(["profiles", "residents", "incidents", "devices", "gateways", "rescue_teams", "operations"]);
+export const HAS_UPDATED_AT = new Set(["profiles", "residents", "incidents", "devices", "gateways", "rescue_teams", "operations", "support_tickets", "platform_settings"]);

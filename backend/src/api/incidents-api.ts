@@ -1,4 +1,5 @@
-import { record } from "../audit.js";
+import { actorOf, record } from "../audit.js";
+import { releaseDeviceAlarm } from "./alerts-api.js";
 import { assertVillageAccess, requireRole } from "../auth.js";
 import { accessProfile, estimateAlternativeRoute, estimateRoute, isValidPoint, riskBand } from "../geo.js";
 import { eqFilter } from "./common.js";
@@ -14,9 +15,9 @@ import type { GeoPoint, IncidentStatus, RecommendationLevel, Row } from "../type
 import { loadSupportProfile, parsePaging, scopedQuery } from "./common.js";
 
 const STATUSES: IncidentStatus[] = [
-  "NEW", "ACKNOWLEDGED", "ASSIGNED", "EN_ROUTE", "ARRIVED", "EVACUATED", "SAFE", "CANCELLED", "CLOSED"
+  "NEW", "ACKNOWLEDGED", "ASSIGNED", "EN_ROUTE", "ARRIVED", "EVACUATED", "NOT_FOUND", "UNREACHABLE", "SAFE", "CANCELLED", "CLOSED"
 ];
-const SEVERITIES = ["WASPADA", "SIAGA", "EVAKUASI"] as const;
+const SEVERITIES = ["WASPADA", "SIAGA", "AWAS"] as const;
 const CLOSED = new Set(["SAFE", "CANCELLED", "CLOSED"]);
 
 const timestampFor = (status: IncidentStatus): string | null => ({
@@ -34,6 +35,8 @@ const statusLabel = (status: string) => ({
   EN_ROUTE: "Tim menuju lokasi",
   ARRIVED: "Tim tiba di lokasi",
   EVACUATED: "Warga sudah dievakuasi",
+  NOT_FOUND: "Warga tidak ditemukan",
+  UNREACHABLE: "Lokasi tidak terjangkau",
   SAFE: "Warga dinyatakan aman",
   CANCELLED: "Laporan dibatalkan",
   CLOSED: "Ditutup"
@@ -231,7 +234,7 @@ export async function createSos(ctx: Ctx) {
     incident_id: incident.id,
     from_status: null,
     to_status: "NEW",
-    changed_by: ctx.session.profileId,
+    changed_by: actorOf(ctx.session),
     notes: optionalText(body.description, "Keterangan", 2000) ?? "Laporan diterima",
     created_at: nowIso()
   });
@@ -274,7 +277,7 @@ export async function updateIncidentStatus(ctx: Ctx) {
     incident_id: param(ctx, "id"),
     from_status: previous,
     to_status: next,
-    changed_by: ctx.session.profileId,
+    changed_by: actorOf(ctx.session),
     notes: optionalText(ctx.body.notes, "Catatan", 2000) ?? statusLabel(next),
     created_at: nowIso()
   });
@@ -282,6 +285,8 @@ export async function updateIncidentStatus(ctx: Ctx) {
     actorId: ctx.session.profileId, action: "INCIDENT_STATUS", entityType: "incidents",
     entityId: param(ctx, "id"), summary: `Status insiden ${previous} menjadi ${next}`, before: incident, after: updated
   });
+  // Rescue memastikan warga aman atau dievakuasi: alarm kalung dilepas dan tombol kembali terkunci (SRS FR-4.3).
+  if (["SAFE", "EVACUATED", "CANCELLED", "CLOSED"].includes(next) && incident.device_id) await releaseDeviceAlarm(ctx.store, String(incident.device_id));
   publish(next === "CLOSED" || next === "CANCELLED" ? "incident.closed" : "incident.updated", {
     id: param(ctx, "id"), status: next, statusLabel: statusLabel(next)
   }, String(incident.village_id ?? ""));
@@ -317,7 +322,7 @@ export async function createAssessment(ctx: Ctx) {
   const source = oneOf(ctx.body.source ?? "RESCUE", ["DESA", "RESCUE", "DEVICE", "SYSTEM"] as const, "Sumber penilaian");
   const assessment = await ctx.store.insert("incident_assessments", {
     incident_id: param(ctx, "id"),
-    assessed_by: ctx.session.profileId,
+    assessed_by: actorOf(ctx.session),
     source,
     summary: optionalText(ctx.body.summary, "Ringkasan", 2000),
     observed_at: nowIso(),
@@ -456,7 +461,7 @@ export async function overrideRecommendation(ctx: Ctx) {
     previous_level: recommendation.suggested_level,
     selected_level: level,
     reason,
-    overridden_by: ctx.session.profileId,
+    overridden_by: actorOf(ctx.session),
     created_at: nowIso()
   });
   await record(ctx.store, {

@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { buildRouter } from "./api/index.js";
+import { applyPlatformSettings } from "./api/platform-api.js";
 import { authenticateDevice, authenticateGateway, resolveSession, usingEphemeralSessionSecret } from "./auth.js";
 import { config, projectRoot } from "./config.js";
 import { HttpError, json, nowIso, readBody } from "./lib.js";
@@ -95,7 +96,7 @@ const serveStatic = async (res: ServerResponse, pathname: string): Promise<boole
       "content-length": body.length,
       "cache-control": immutable ? "public, max-age=300" : "no-cache",
       "x-content-type-options": "nosniff",
-      "referrer-policy": "no-referrer",
+      "referrer-policy": "strict-origin-when-cross-origin",
       "content-security-policy": CSP
     });
     res.end(body);
@@ -105,12 +106,13 @@ const serveStatic = async (res: ServerResponse, pathname: string): Promise<boole
   }
 };
 
+const inariskHost = (() => { try { return config.inariskWmsUrl ? new URL(config.inariskWmsUrl).origin : ""; } catch { return ""; } })();
 const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "img-src 'self' data: https://*.tile.openstreetmap.org https://tile.openstreetmap.org",
-  "connect-src 'self'",
+  `img-src 'self' data: https://*.tile.openstreetmap.org https://tile.openstreetmap.org https://server.arcgisonline.com${inariskHost ? ` ${inariskHost}` : ""}`,
+  `connect-src 'self' https://router.project-osrm.org https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://server.arcgisonline.com`,
   "font-src 'self' data: https://fonts.gstatic.com",
   "object-src 'none'",
   "base-uri 'self'",
@@ -125,6 +127,7 @@ const store: Store = await createStore().catch(error => {
   process.exit(1);
 });
 const router = buildRouter();
+await applyPlatformSettings(store).catch(() => undefined); // pengaturan Pusat (mis. batas offline kalung)
 
 const DEVICE_ROUTES = ["/api/device/telemetry", "/api/device/location", "/api/device/inbox", "/api/device/sos", "/api/device/receipts/"];
 
@@ -233,11 +236,17 @@ server.listen(config.port, () => {
 
   // Mode memori/demo: kalung "online" pada data demo tidak punya perangkat nyata yang mengirim sinyal, jadi sinyalnya
   // diperbarui berkala supaya tidak otomatis tampil offline. Matikan dengan JAGA_DEMO_HEARTBEAT=false.
-  if (store.kind === "memory" && process.env.JAGA_DEMO_HEARTBEAT !== "false") {
-    const heartbeat = setInterval(async () => {
-      const devices = await store.list("devices", { eq: { online: true } });
-      for (const device of devices) await store.update("devices", String(device.id), { last_seen_at: nowIso() });
-    }, 5 * 60_000);
+  // Di Supabase, detak ini hanya aktif bila JAGA_DEMO_HEARTBEAT=true (demo tanpa kalung asli); jangan dipakai bersama kalung sungguhan.
+  const demoHeartbeat = store.kind === "memory" ? process.env.JAGA_DEMO_HEARTBEAT !== "false" : process.env.JAGA_DEMO_HEARTBEAT === "true";
+  if (demoHeartbeat) {
+    const beat = async () => {
+      try {
+        const devices = await store.list("devices", { eq: { online: true } });
+        for (const device of devices) await store.update("devices", String(device.id), { last_seen_at: nowIso(), ...(device.location_at ? { location_at: nowIso() } : {}) });
+      } catch (error) { console.warn("[jaga] detak demo gagal:", (error as Error).message); }
+    };
+    void beat();
+    const heartbeat = setInterval(beat, 5 * 60_000);
     heartbeat.unref();
   }
 });

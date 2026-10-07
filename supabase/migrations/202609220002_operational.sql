@@ -109,6 +109,11 @@ create table if not exists public.priority_thresholds (
 create index if not exists priority_thresholds_rule_set_idx
   on public.priority_thresholds (rule_set_id, min_score desc);
 
+-- Seperti tabel lain: RLS aktif tanpa policy, hanya backend (service_role) yang boleh mengakses.
+alter table public.priority_thresholds enable row level security;
+revoke all on public.priority_thresholds from anon, authenticated;
+grant all on public.priority_thresholds to service_role;
+
 insert into public.priority_thresholds (rule_set_id, level, min_score, display_order)
 select rs.id, v.level, v.min_score, v.display_order
 from public.priority_rule_sets rs

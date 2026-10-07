@@ -7,7 +7,6 @@ import type { Query } from "../store.js";
 export interface SupportProfile {
   resident: Row;
   village: Row | null;
-  hamlet: Row | null;
   vulnerabilities: Array<Row & { type: Row | null }>;
   contacts: Row[];
   device: Row | null;
@@ -37,9 +36,8 @@ export async function loadSupportProfile(store: Store, residentId: string): Prom
   const resident = await store.one("residents", { eq: { id: residentId } });
   if (!resident) return null;
 
-  const [village, hamlet, vulnerabilities, contacts, assignments, incidents] = await Promise.all([
+  const [village, vulnerabilities, contacts, assignments, incidents] = await Promise.all([
     resident.village_id ? store.one("villages", { eq: { id: String(resident.village_id) } }) : null,
-    resident.hamlet_id ? store.one("hamlets", { eq: { id: String(resident.hamlet_id) } }) : null,
     store.list("resident_vulnerabilities", { eq: { resident_id: residentId } }),
     store.list("resident_contacts", { eq: { resident_id: residentId } }),
     store.list("device_assignments", { eq: { resident_id: residentId }, isNull: { unassigned_at: true } }),
@@ -69,7 +67,7 @@ export async function loadSupportProfile(store: Store, residentId: string): Prom
   if (device ? device.battery < 25 : true) riskFlags.push("Perangkat baterai lemah atau tidak terpasang");
 
   const base = {
-    resident, village, hamlet,
+    resident, village,
     vulnerabilities: vulnerabilities.map(row => ({ ...row, type: typeMap.get(String(row.vulnerability_type_id)) ?? null })),
     contacts, device, deviceAssignment: assignment, latestTelemetry: telemetry,
     openIncidents: incidents.filter(row => !["SAFE", "CANCELLED", "CLOSED"].includes(String(row.status)))

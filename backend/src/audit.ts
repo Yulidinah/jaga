@@ -1,5 +1,5 @@
 import { config } from "./config.js";
-import { nowIso, uuid } from "./lib.js";
+import { isUuid, nowIso, uuid } from "./lib.js";
 import type { Row, Session } from "./types.js";
 import type { Store } from "./store.js";
 
@@ -20,7 +20,7 @@ const RING_LIMIT = 300;
 /** Catat perubahan ke tabel audit_logs. Gagal menulis audit tidak boleh menggagalkan operasi utama. */
 export async function record(store: Store, input: AuditInput): Promise<void> {
   const entry: Row = {
-    actor_id: input.actorId,
+    actor_id: input.actorId && isUuid(input.actorId) ? input.actorId : null, // sesi perangkat (device:ID) bukan profil
     action: input.action.slice(0, 120),
     entity_type: input.entityType,
     entity_id: input.entityId ?? null,
@@ -40,7 +40,8 @@ export async function record(store: Store, input: AuditInput): Promise<void> {
   }
 }
 
-export const actorOf = (session: Session | null): string | null => session?.profileId ?? null;
+/** Pelaku untuk kolom yang merujuk profil: hanya UUID profil nyata; sesi perangkat atau mode dev menjadi null. */
+export const actorOf = (session: Session | null): string | null => (session && isUuid(session.profileId) ? session.profileId : null);
 
 export const recentAudit = (limit = 50): Array<Row & { at: string }> => ring.slice(0, Math.min(limit, RING_LIMIT));
 

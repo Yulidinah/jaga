@@ -1,7 +1,7 @@
 /* Halaman masuk JAGA */
 :root {
-  --green-900: #143f27; --green-800: #1f5636; --green-600: #2f7d3e; --green-100: #e3f0e5; --green-50: #f0f7f1;
-  --cream: #faf8f1; --ink: #1b2820; --muted: #5d6d62; --line: #e3e0d2; --red: #c8372d;
+  --green-900: #0f3322; --green-800: #17513a; --green-600: #2f7d4e; --green-100: #e4efe7; --green-50: #f1f6f2;
+  --cream: #f3f5f2; --ink: #14231b; --muted: #5b695f; --line: #e4e9e4; --lime: #d5f27c; --red: #c8372d;
 }
 * { box-sizing: border-box; }
 body { margin: 0; font-family: "DM Sans", system-ui, sans-serif; color: var(--ink); background: var(--cream); font-size: 14px; line-height: 1.5; }
@@ -9,7 +9,7 @@ h1, h2 { font-family: "Manrope", "DM Sans", sans-serif; margin: 0; letter-spacin
 .auth { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(420px, .95fr); }
 
 .auth-brand { position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: 40px; padding: 44px 56px; color: #fff; overflow: hidden;
-  background: radial-gradient(120% 90% at 0% 0%, #2f7d3e 0%, #1f5636 55%, #143f27 100%); }
+  background: radial-gradient(110% 80% at 0% 0%, #1d5239 0%, #123a29 60%, #0f3322 100%); }
 .auth-brand::after { content: ""; position: absolute; right: -140px; bottom: -140px; width: 420px; height: 420px; border-radius: 50%; background: rgba(255, 255, 255, .06); }
 .brand-top { display: flex; align-items: center; gap: 14px; position: relative; z-index: 1; }
 .brand-mark { height: 58px; width: auto; }
@@ -20,7 +20,7 @@ h1, h2 { font-family: "Manrope", "DM Sans", sans-serif; margin: 0; letter-spacin
 .brand-copy p { margin: 18px 0 0; font-size: 16px; line-height: 1.6; opacity: .9; }
 .brand-copy ul { list-style: none; margin: 28px 0 0; padding: 0; display: grid; gap: 14px; }
 .brand-copy li { display: flex; align-items: flex-start; gap: 12px; font-size: 14px; opacity: .95; }
-.brand-copy li i { flex: none; width: 8px; height: 8px; margin-top: 7px; border-radius: 50%; background: #b9efc5; box-shadow: 0 0 0 4px rgba(185, 239, 197, .2); }
+.brand-copy li i { flex: none; width: 8px; height: 8px; margin-top: 7px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 0 4px rgba(213, 242, 124, .18); }
 .brand-foot { position: relative; z-index: 1; margin: 0; font-size: 12px; opacity: .7; }
 
 .auth-form-wrap { display: grid; place-items: center; padding: 40px 28px; }
@@ -29,21 +29,16 @@ h1, h2 { font-family: "Manrope", "DM Sans", sans-serif; margin: 0; letter-spacin
 .auth-form h2 { font-size: 28px; font-weight: 800; }
 .intro { color: var(--muted); margin: -8px 0 6px; }
 .field { display: grid; gap: 6px; font-weight: 700; font-size: 12px; }
-.field input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; background: #fff; font: 500 15px "DM Sans", sans-serif; color: var(--ink); }
+.field input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff; font: 500 15px "DM Sans", sans-serif; color: var(--ink); }
 .field input:focus { outline: 0; border-color: var(--green-600); box-shadow: 0 0 0 4px rgba(47, 125, 62, .14); }
 .password { position: relative; }
 .password input { padding-right: 84px; }
 .show-pass { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: 0; background: transparent; color: var(--green-600); font-weight: 700; font-size: 12px; padding: 6px 8px; cursor: pointer; border-radius: 6px; }
 .show-pass:hover { background: var(--green-50); }
 .form-error { min-height: 20px; margin: -4px 0 0; color: var(--red); font-weight: 600; }
-.submit { padding: 13px 18px; border: 0; border-radius: 11px; background: var(--green-600); color: #fff; font: 700 15px "DM Sans", sans-serif; cursor: pointer; transition: background .15s; }
-.submit:hover { background: var(--green-800); }
+.submit { padding: 14px 20px; border: 0; border-radius: 14px; background: var(--green-800); color: #fff; font: 700 15px "DM Sans", sans-serif; cursor: pointer; transition: background .15s; }
+.submit:hover { background: var(--green-900); }
 .submit:disabled { opacity: .6; cursor: wait; }
-.demo { padding: 14px; border: 1px dashed #bcd6c1; border-radius: 12px; background: var(--green-50); display: grid; gap: 10px; }
-.demo > span { font-size: 12px; font-weight: 700; color: var(--green-800); }
-.demo-list { display: flex; gap: 8px; flex-wrap: wrap; }
-.demo-list button { padding: 7px 12px; border: 1px solid #c4dcc9; border-radius: 999px; background: #fff; font: 700 12px "DM Sans", sans-serif; color: var(--green-800); cursor: pointer; }
-.demo-list button:hover { background: var(--green-100); }
 .help { margin: 0; color: var(--muted); font-size: 12px; text-align: center; }
 
 @media (max-width: 900px) {
@@ -59,6 +54,3 @@ h1, h2 { font-family: "Manrope", "DM Sans", sans-serif; margin: 0; letter-spacin
 
 .back { justify-self: start; margin-bottom: -4px; color: var(--muted); font-size: 13px; font-weight: 600; text-decoration: none; }
 .back:hover { color: var(--green-800); }
-.demo-list button { display: grid; gap: 1px; text-align: left; border-radius: 12px; padding: 8px 12px; }
-.demo-list button small { font-weight: 500; font-size: 11px; color: var(--muted); }
-.demo-list button.match { border-color: var(--green-600); background: var(--green-100); box-shadow: 0 0 0 3px rgba(47, 125, 62, .12); }

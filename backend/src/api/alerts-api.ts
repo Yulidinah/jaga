@@ -1,14 +1,15 @@
-import { notify, record } from "../audit.js";
+import { actorOf, notify, record } from "../audit.js";
 import { assertVillageAccess, requireRole, scopeIds } from "../auth.js";
-import { badRequest, clean, forbidden, indexBy, isUuid, notFound, nowIso, oneOf, optionalText, requireUuid, text } from "../lib.js";
+import { badRequest, clean, forbidden, indexBy, isOnline, isUuid, notFound, nowIso, oneOf, optionalText, requireUuid, text } from "../lib.js";
 import { publish } from "../realtime.js";
 import { param, type Ctx } from "../router.js";
 import type { Row } from "../types.js";
 import { scopedQuery } from "./common.js";
 import { AUTO_OPEN_SEVERITIES, openOrEscalateOperation } from "./operations-api.js";
+import { getSettings } from "./platform-api.js";
 
-const SEVERITIES = ["WASPADA", "SIAGA", "EVAKUASI"] as const;
-const TARGET_TYPES = ["DESA", "DUSUN", "KELOMPOK_RENTAN", "PERANGKAT", "ZONA"] as const;
+const SEVERITIES = ["WASPADA", "SIAGA", "AWAS"] as const;
+const TARGET_TYPES = ["DESA", "KELOMPOK_RENTAN", "PERANGKAT", "ZONA"] as const;
 
 export async function listAlerts(ctx: Ctx) {
   const villageId = clean(ctx.query.get("villageId"));
@@ -71,39 +72,27 @@ export async function getAlert(ctx: Ctx) {
 }
 
 export async function createAlert(ctx: Ctx) {
-  requireRole(ctx.session, ["PUSAT", "DESA"], "Hanya pusat atau desa yang dapat mengirim peringatan");
+  requireRole(ctx.session, ["DESA"], "Hanya JAGA Desa yang dapat membunyikan alarm. Pusat memantau dan menerima informasinya");
   const body = ctx.body;
   const villageId = requireUuid(body.villageId, "Desa");
   assertVillageAccess(ctx.session, villageId);
   const village = await ctx.store.one("villages", { eq: { id: villageId } });
   if (!village) throw badRequest("Desa tidak ditemukan");
-  let targetType = oneOf(body.targetType ?? "DESA", TARGET_TYPES, "Tipe target");
+  const targetType = oneOf(body.targetType ?? "DESA", TARGET_TYPES, "Tipe target");
   const severity = oneOf(body.severity ?? "WASPADA", SEVERITIES, "Tingkat kewaspadaan");
   const message = text(body.message, "Isi peringatan", { max: 1000 });
   const targetReference = optionalText(body.targetReference, "Referensi target", 200);
 
-  // Area per dusun: hamletIds (boleh beberapa) membatasi alarm dan operasi pada dusun terdampak.
-  const requestedHamlets = Array.isArray(body.hamletIds) ? Array.from(new Set(body.hamletIds.map(String))) : [];
-  if (requestedHamlets.length && targetType === "DESA") targetType = "DUSUN";
-  let hamletIds: string[] = [];
-  let hamletNames = "";
-  if (targetType === "DUSUN") {
-    hamletIds = requestedHamlets.length ? requestedHamlets : targetReference ? [targetReference] : [];
-    if (!hamletIds.length) throw badRequest("Target dusun memerlukan hamletIds berisi ID dusun");
-    if (!hamletIds.every(isUuid)) throw badRequest("ID dusun tidak valid");
-    const found = await ctx.store.list("hamlets", { in: { id: hamletIds }, eq: { village_id: villageId } });
-    if (found.length !== hamletIds.length) throw badRequest("Ada dusun yang tidak ditemukan di desa ini");
-    hamletNames = found.map(row => String(row.name)).join(", ");
-  }
-  const target = text(String(body.target ?? (hamletNames || targetReference || `Seluruh ${village.name}`)).slice(0, 200), "Target", { max: 200 });
+  const target = text(String(body.target ?? (targetReference || `Seluruh ${village.name}`)).slice(0, 200), "Target", { max: 200 });
 
   // Sasaran dihitung lebih dulu: peringatan tanpa perangkat sasaran ditolak, bukan dikirim ke semua orang.
-  const deviceIds = await resolveTargets(ctx, { villageId, targetType, targetReference, hamletIds });
+  const deviceIds = await resolveTargets(ctx, { villageId, targetType, targetReference });
   if (!deviceIds.length) throw badRequest("Tidak ada perangkat sasaran untuk target ini. Periksa target dan pemasangan kalung.");
   const devices = await ctx.store.list("devices", { in: { id: deviceIds }, eq: { village_id: villageId } });
   if (!devices.length) throw badRequest("Perangkat sasaran tidak ditemukan di desa ini");
 
-  const expiresMinutes = Math.min(10080, Math.max(1, Number(body.expiresInMinutes ?? 120) || 120));
+  const defaultExpiry = (await getSettings(ctx.store)).alert_expiry_minutes;
+  const expiresMinutes = Math.min(10080, Math.max(1, Number(body.expiresInMinutes ?? defaultExpiry) || defaultExpiry));
   const command = await ctx.store.insert("alert_commands", {
     village_id: villageId,
     target,
@@ -113,7 +102,7 @@ export async function createAlert(ctx: Ctx) {
     message,
     // Status naik menjadi SENT saat perangkat mengambil perintah dari inbox, lalu ACKNOWLEDGED setelah dikonfirmasi.
     status: "QUEUED",
-    requested_by: ctx.session.profileId,
+    requested_by: actorOf(ctx.session),
     created_at: nowIso(),
     expires_at: new Date(Date.now() + expiresMinutes * 60_000).toISOString()
   });
@@ -133,7 +122,7 @@ export async function createAlert(ctx: Ctx) {
   }
   const external = channels.filter(channel => channel !== "IN_APP");
   if (external.length) {
-    for (const resident of await resolveResidents(ctx, { villageId, targetType, targetReference, hamletIds })) {
+    for (const resident of await resolveResidents(ctx, { villageId, targetType, targetReference })) {
       for (const channel of external) {
         const destination = String(resident.phone ?? "");
         if (!destination) continue;
@@ -145,11 +134,11 @@ export async function createAlert(ctx: Ctx) {
     }
   }
 
-  // Alarm area tingkat Siaga/Evakuasi membuka operasi: Rescue otomatis mendapat roster pemakai kalung di area itu.
+  // Alarm area tingkat Siaga/Awas membuka operasi: Rescue otomatis mendapat roster pemakai kalung di area itu.
   let operation: Row | null = null;
-  if ((targetType === "DESA" || targetType === "DUSUN") && AUTO_OPEN_SEVERITIES.includes(severity)) {
+  if (targetType === "DESA" && AUTO_OPEN_SEVERITIES.includes(severity)) {
     operation = await openOrEscalateOperation(ctx, {
-      villageId, severity, hamletIds, commandId: String(command.id),
+      villageId, severity, commandId: String(command.id),
       waterLevelCm: body.waterLevelCm, note: body.observationNote, disasterType: body.disasterType
     });
   }
@@ -168,6 +157,35 @@ export async function createAlert(ctx: Ctx) {
   };
 }
 
+/**
+ * Sinyal darurat satu tombol: peringatan AWAS ke seluruh kalung desa (kalung berbunyi, bergetar, dan menyala)
+ * sekaligus membuka operasi Rescue. Sama dengan alarm penuh, tetapi tanpa pilihan lain agar bisa dipicu secepatnya.
+ */
+export async function emergencyAlert(ctx: Ctx) {
+  requireRole(ctx.session, ["DESA"], "Hanya JAGA Desa yang dapat mengirim sinyal darurat");
+  // Tombol satu langkah tidak boleh terpicu oleh panggilan tanpa maksud (isi kosong, pemindai, salah klik).
+  if (ctx.body.confirm !== true) throw badRequest("Sinyal darurat wajib dikonfirmasi: kirim confirm=true");
+  const own = ctx.session.villageIds?.length === 1 ? String(ctx.session.villageIds[0]) : "";
+  const villageId = clean(ctx.body.villageId) || own;
+  if (!villageId) throw badRequest("villageId wajib diisi");
+  assertVillageAccess(ctx.session, villageId);
+  const source = ctx.body;
+  ctx.body = {
+    villageId,
+    targetType: "DESA",
+    severity: "AWAS",
+    message: optionalText(source.message, "Pesan", 1000) ?? "SINYAL DARURAT: segera menuju titik aman bersama pendamping.",
+    waterLevelCm: source.waterLevelCm,
+    observationNote: source.observationNote,
+    disasterType: source.disasterType
+  };
+  await record(ctx.store, {
+    actorId: ctx.session.profileId, action: "ALERT_EMERGENCY", entityType: "villages", entityId: villageId,
+    summary: "Sinyal darurat satu tombol dipicu"
+  });
+  return createAlert(ctx);
+}
+
 const channelsFor = (value: unknown): string[] => {
   const list = Array.isArray(value) ? value.map(String) : value ? [String(value)] : ["IN_APP"];
   const valid = list.filter(entry => ["IN_APP", "PUSH", "SMS", "EMAIL"].includes(entry));
@@ -175,7 +193,7 @@ const channelsFor = (value: unknown): string[] => {
 };
 
 /** Perangkat sasaran. Selalu dibatasi pada desa peringatan; tidak ada fallback ke "semua perangkat". */
-async function resolveTargets(ctx: Ctx, options: { villageId: string; targetType: string; targetReference: string | null; hamletIds?: string[] }): Promise<string[]> {
+async function resolveTargets(ctx: Ctx, options: { villageId: string; targetType: string; targetReference: string | null}): Promise<string[]> {
   const { villageId, targetType, targetReference } = options;
   if (targetType === "PERANGKAT") {
     if (!targetReference) throw badRequest("Target perangkat memerlukan targetReference berisi ID perangkat");
@@ -183,7 +201,7 @@ async function resolveTargets(ctx: Ctx, options: { villageId: string; targetType
     if (!device || String(device.village_id) !== villageId) throw badRequest("Perangkat tidak ditemukan di desa ini");
     return [String(device.id)];
   }
-  if (targetType === "ZONA") throw badRequest("Target ZONA belum didukung. Pilih DESA, DUSUN, KELOMPOK_RENTAN, atau PERANGKAT.");
+  if (targetType === "ZONA") throw badRequest("Target ZONA belum didukung. Pilih DESA, KELOMPOK_RENTAN, atau PERANGKAT.");
   if (targetType === "DESA") {
     const all = await ctx.store.list("devices", { eq: { village_id: villageId } });
     return all.filter(row => !["LOST", "RETIRED", "STOCK"].includes(String(row.status))).map(row => String(row.id));
@@ -194,14 +212,9 @@ async function resolveTargets(ctx: Ctx, options: { villageId: string; targetType
   return assignments.map(row => String(row.device_id));
 }
 
-async function resolveResidents(ctx: Ctx, options: { villageId: string; targetType: string; targetReference: string | null; hamletIds?: string[] }): Promise<Row[]> {
+async function resolveResidents(ctx: Ctx, options: { villageId: string; targetType: string; targetReference: string | null}): Promise<Row[]> {
   const { villageId, targetType, targetReference } = options;
   const residents = await ctx.store.list("residents", { eq: { village_id: villageId, active: true } });
-  if (targetType === "DUSUN") {
-    const wanted = options.hamletIds?.length ? options.hamletIds : targetReference ? [targetReference] : [];
-    if (!wanted.length) throw badRequest("Target dusun memerlukan ID dusun");
-    return residents.filter(row => wanted.includes(String(row.hamlet_id)));
-  }
   if (targetType !== "KELOMPOK_RENTAN") return residents;
 
   // Referensi boleh berupa id jenis kerentanan, kode, atau kategorinya.
@@ -296,3 +309,119 @@ export async function markNotificationRead(ctx: Ctx) {
 }
 
 export { resolveTargets, resolveResidents };
+
+/* ------------------------------------------------------------------ Alarm aktif per kalung */
+
+/**
+ * Alarm yang sedang aktif di sebuah kalung: receipt belum dilepas, perintah belum kedaluwarsa. Selama aktif, tombol di
+ * kalung terbuka (SRS FR-4.3); setelah Rescue memastikan warga aman/dievakuasi atau operasi ditutup, tombol terkunci lagi.
+ */
+export async function activeAlarmFor(store: Ctx["store"], deviceId: string): Promise<{ receipt: Row; command: Row } | null> {
+  const receipts = (await store.list("command_receipts", { eq: { device_id: deviceId }, in: { status: ["QUEUED", "SENT", "ACKNOWLEDGED"] } }))
+    .filter(row => !row.released_at);
+  if (!receipts.length) return null;
+  const commands = await store.list("alert_commands", { in: { id: receipts.map(row => String(row.command_id)) } });
+  const now = nowIso();
+  const live = receipts
+    .map(receipt => ({ receipt, command: commands.find(command => String(command.id) === String(receipt.command_id)) }))
+    .filter(item => item.command
+      && (!item.command.expires_at || String(item.command.expires_at) > now)
+      && !["EXPIRED", "FAILED"].includes(String(item.command.status))) as Array<{ receipt: Row; command: Row }>;
+  live.sort((x, y) => String(y.command.created_at).localeCompare(String(x.command.created_at)));
+  return live[0] ?? null;
+}
+
+/** Melepas alarm sebuah kalung (tombol kembali terkunci). */
+export async function releaseDeviceAlarm(store: Ctx["store"], deviceId: string): Promise<void> {
+  const receipts = (await store.list("command_receipts", { eq: { device_id: deviceId } })).filter(row => !row.released_at);
+  for (const row of receipts) await store.update("command_receipts", String(row.id), { released_at: nowIso() });
+}
+
+/** Melepas seluruh alarm kalung di sebuah desa (dipakai saat operasi ditutup). */
+export async function releaseVillageAlarms(store: Ctx["store"], villageId: string): Promise<void> {
+  const devices = await store.list("devices", { eq: { village_id: villageId } });
+  for (const device of devices) {
+    // Warga yang masih menunggu bantuan tetap memegang alarmnya sampai Rescue memastikan aman.
+    const waiting = await store.one("incidents", { eq: { device_id: String(device.id) }, pred: row => !["SAFE", "CANCELLED", "CLOSED"].includes(String(row.status)) });
+    if (!waiting) await releaseDeviceAlarm(store, String(device.id));
+  }
+}
+
+const BOARD_LABEL: Record<string, string> = {
+  MENUNGGU: "Alarm terkirim, belum merespons",
+  BANTUAN: "Meminta bantuan",
+  AMAN: "Aman atau dievakuasi",
+  TIDAK_DITEMUKAN: "Tidak ditemukan",
+  TIDAK_TERJANGKAU: "Tidak terjangkau atau alarm gagal",
+  NORMAL: "Tidak ada alarm aktif"
+};
+
+/**
+ * Papan status per penerima manfaat (SRS FR-2.6): alarm terkirim tanpa respons, meminta bantuan (tombol ditekan),
+ * atau aman/dievakuasi (dikonfirmasi JAGA Rescue).
+ */
+export async function statusBoard(ctx: Ctx) {
+  requireRole(ctx.session, ["PUSAT", "DESA"], "Papan status untuk JAGA Desa dan JAGA Pusat");
+  const wanted = clean(ctx.query.get("villageId"));
+  const ids = scopeIds(ctx.session);
+  if (wanted) assertVillageAccess(ctx.session, wanted);
+  const villages = await ctx.store.list("villages", wanted ? { eq: { id: wanted } } : ids === null ? {} : { in: { id: ids.length ? ids : ["__tidak_ada__"] } });
+  const villageIds = villages.map(row => String(row.id));
+  const residents = villageIds.length ? await ctx.store.list("residents", { in: { village_id: villageIds }, eq: { active: true } }) : [];
+  const assignments = residents.length ? await ctx.store.list("device_assignments", { in: { resident_id: residents.map(row => String(row.id)) }, isNull: { unassigned_at: true } }) : [];
+  const deviceIds = assignments.map(row => String(row.device_id));
+  const [devices, receipts, incidents] = deviceIds.length
+    ? await Promise.all([
+        ctx.store.list("devices", { in: { id: deviceIds } }),
+        ctx.store.list("command_receipts", { in: { device_id: deviceIds } }),
+        ctx.store.list("incidents", { in: { device_id: deviceIds } })
+      ])
+    : [[], [], []];
+  const commands = receipts.length ? await ctx.store.list("alert_commands", { in: { id: Array.from(new Set(receipts.map(row => String(row.command_id)))) } }) : [];
+  const commandOf = indexBy(commands, row => String(row.id));
+  const deviceOf = indexBy(devices, row => String(row.id));
+  const residentOf = indexBy(residents, row => String(row.id));
+  const villageOf = indexBy(villages, row => String(row.id));
+  const now = nowIso();
+
+  const rows = assignments.map(assignment => {
+    const device = deviceOf.get(String(assignment.device_id));
+    const resident = residentOf.get(String(assignment.resident_id));
+    if (!device || !resident) return null;
+    const mine = receipts
+      .filter(row => String(row.device_id) === String(device.id) && commandOf.has(String(row.command_id)))
+      .sort((x, y) => String(commandOf.get(String(y.command_id))?.created_at).localeCompare(String(commandOf.get(String(x.command_id))?.created_at)));
+    const receipt = mine[0] ?? null;
+    const command = receipt ? commandOf.get(String(receipt.command_id)) ?? null : null;
+    const alarmLive = Boolean(receipt && command && !receipt.released_at && (!command.expires_at || String(command.expires_at) > now) && !["EXPIRED", "FAILED"].includes(String(command.status)));
+    const incident = command
+      ? incidents.filter(row => String(row.device_id) === String(device.id)
+          && (String(row.created_at) >= String(command.created_at) || String(row.updated_at ?? row.closed_at ?? "") >= String(command.created_at)
+            || !["SAFE", "CANCELLED", "CLOSED"].includes(String(row.status))))
+          .sort((x, y) => String(y.created_at).localeCompare(String(x.created_at)))[0] ?? null
+      : null;
+    let state = "NORMAL";
+    if (incident && ["SAFE", "EVACUATED"].includes(String(incident.status))) state = "AMAN";
+    else if (incident && String(incident.status) === "NOT_FOUND") state = "TIDAK_DITEMUKAN";
+    else if (incident && String(incident.status) === "UNREACHABLE") state = "TIDAK_TERJANGKAU";
+    else if (incident || (alarmLive && receipt?.assistance_requested_at)) state = "BANTUAN";
+    else if (alarmLive && (["FAILED", "EXPIRED"].includes(String(receipt?.status)) || !isOnline(device))) state = "TIDAK_TERJANGKAU";
+    else if (alarmLive) state = "MENUNGGU";
+    return {
+      villageId: resident.village_id, villageName: villageOf.get(String(resident.village_id))?.name ?? null,
+      residentId: resident.id, residentName: resident.full_name, deviceId: device.id,
+      online: isOnline(device), battery: device.battery ?? null,
+      state, stateLabel: BOARD_LABEL[state],
+      alarmSeverity: alarmLive ? command?.severity ?? null : null,
+      alarmAt: command?.created_at ?? null,
+      assistanceAt: receipt?.assistance_requested_at ?? null,
+      incidentId: incident?.id ?? null, incidentStatus: incident?.status ?? null
+    };
+  }).filter((row): row is NonNullable<typeof row> => row !== null);
+
+  const order = ["BANTUAN", "TIDAK_TERJANGKAU", "TIDAK_DITEMUKAN", "MENUNGGU", "AMAN", "NORMAL"];
+  rows.sort((x, y) => order.indexOf(x.state) - order.indexOf(y.state) || String(x.residentName).localeCompare(String(y.residentName), "id"));
+  const counts: Record<string, number> = {};
+  for (const row of rows) counts[row.state] = (counts[row.state] ?? 0) + 1;
+  return { counts, labels: BOARD_LABEL, rows };
+}

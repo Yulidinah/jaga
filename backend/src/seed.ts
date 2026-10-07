@@ -5,10 +5,10 @@ import type { Row } from "./types.js";
 /**
  * DATA PILOT: Gampong Leubok Pusaka (Kec. Langkahan, Kab. Aceh Utara).
  *
- * Yang NYATA (publik): kode wilayah, nama, titik tengah desa (Wikidata), nama Dusun Tanah Merah.
+ * Yang NYATA (publik): kode wilayah, nama, titik tengah desa (OpenStreetMap), nama kawasan Tanah Merah. Koordinat desa dari OpenStreetMap (place=village, dicek: tepat di jalan terpetakan).
  * Yang DUMMY: seluruh warga, kontak, kerentanan, kalung, gateway, tim, insiden, alarm, aturan skor, titik kumpul, zona bahaya
- * (batas dan koordinat rumah dibuat acak di sekitar titik tengah dusun, tidak menunjuk rumah siapa pun).
- * Dusun selain Tanah Merah adalah placeholder. Alasan pemilihan lokasi dan dasar prioritas: docs/JAGA.md.
+ * (batas dan koordinat rumah dibuat acak di sekitar titik tengah desa, tidak menunjuk rumah siapa pun).
+ * Kawasan Tanah Merah (laporan media) nyata; titik lain di desa hanya penyebar koordinat dummy. Alasan pemilihan lokasi dan dasar prioritas: docs/JAGA.md.
  */
 
 /** UUID deterministik supaya data demo sama antara mode memori dan seed Supabase. */
@@ -19,7 +19,7 @@ export const DEMO_ACCOUNTS = [
     email: "pusat@jaga.id",
     password: "JagaPusat2026!",
     displayName: "Rani Puspita",
-    title: "Koordinator Nasional JAGA (dummy)",
+    title: "Koordinator Nasional JAGA",
     role: "PUSAT" as const,
     org: 1,
     villages: [] as number[]
@@ -28,7 +28,7 @@ export const DEMO_ACCOUNTS = [
     email: "desa.leubokpusaka@jaga.id",
     password: "JagaDesa2026!",
     displayName: "Zulfahmi",
-    title: "Operator JAGA Desa Leubok Pusaka (dummy)",
+    title: "Operator JAGA Desa Leubok Pusaka",
     role: "DESA" as const,
     org: 2,
     villages: [1]
@@ -37,18 +37,45 @@ export const DEMO_ACCOUNTS = [
     email: "rescue.bpbd@jaga.id",
     password: "JagaRescue2026!",
     displayName: "Dimas Prakoso",
-    title: "Komandan TRC BPBD Aceh Utara (dummy)",
+    title: "Komandan TRC BPBD Aceh Utara",
     role: "RESCUE" as const,
     org: 3,
-    villages: [1]
+    villages: [1, 2, 3]
   },
   {
     email: "rescue.damkar@jaga.id",
     password: "JagaRescue2026!",
     displayName: "Bayu Setiawan",
-    title: "Komandan Damkar Aceh Utara (dummy)",
+    title: "Komandan Damkar Aceh Utara",
     role: "RESCUE" as const,
     org: 4,
+    villages: [1, 2, 3]
+  },
+  {
+    email: "desa.seureuke@jaga.id",
+    password: "JagaDesa2026!",
+    displayName: "Muhammad Nasir",
+    title: "Operator JAGA Desa Seureuke",
+    role: "DESA" as const,
+    org: 5,
+    villages: [2]
+  },
+  {
+    email: "desa.buketlinteung@jaga.id",
+    password: "JagaDesa2026!",
+    displayName: "Rahmatillah",
+    title: "Operator JAGA Desa Buket Linteung",
+    role: "DESA" as const,
+    org: 6,
+    villages: [3]
+  },
+  {
+    email: "rescue.siagadesa@jaga.id",
+    password: "JagaRescue2026!",
+    displayName: "Ilyas Hasballah",
+    title: "Ketua Tim Siaga Gampong Leubok Pusaka",
+    role: "RESCUE" as const,
+    org: 7,
     villages: [1]
   }
 ];
@@ -75,15 +102,18 @@ const regencies = [{ id: "1108", province_id: "11", name: "Kabupaten Aceh Utara"
 const districts = [{ id: "110818", regency_id: "1108", name: "Kecamatan Langkahan" }];
 
 const village = {
-  n: 1, code: "1108182021", name: "Gampong Leubok Pusaka", lat: 4.827, lng: 97.416, population: 2286,
-  access: "Dusun Tanah Merah terendam banjir November 2025 (laporan media). Jalan desa sempit dan rawan genangan saat sungai meluap. Catatan akses ini dummy; verifikasi dengan Keuchik."
+  n: 1, code: "1108182021", name: "Gampong Leubok Pusaka", lat: 4.8479, lng: 97.4728, population: 2286,
+  access: "Kawasan Tanah Merah di desa ini terendam banjir November 2025 (laporan media). Jalan desa sempit dan rawan genangan saat sungai meluap."
 };
 
 const organizations = [
-  { n: 1, name: "JAGA Pusat (dummy)", type: "PUSAT", email: "pusat@jaga.id" },
+  { n: 1, name: "JAGA Pusat", type: "PUSAT", email: "pusat@jaga.id" },
   { n: 2, name: "Pemerintah Gampong Leubok Pusaka", type: "PEMERINTAH_DESA", email: "desa.leubokpusaka@jaga.id" },
   { n: 3, name: "BPBD Kabupaten Aceh Utara", type: "BPBD", email: "rescue.bpbd@jaga.id" },
-  { n: 4, name: "Damkar Kabupaten Aceh Utara", type: "DAMKAR", email: "rescue.damkar@jaga.id" }
+  { n: 4, name: "Damkar Kabupaten Aceh Utara", type: "DAMKAR", email: "rescue.damkar@jaga.id" },
+  { n: 5, name: "Pemerintah Gampong Seureuke", type: "PEMERINTAH_DESA", email: "desa.seureuke@jaga.id" },
+  { n: 6, name: "Pemerintah Gampong Buket Linteung", type: "PEMERINTAH_DESA", email: "desa.buketlinteung@jaga.id" },
+  { n: 7, name: "Tim Siaga Gampong Leubok Pusaka", type: "RELAWAN", email: "rescue.siagadesa@jaga.id" }
 ];
 
 const vulnerabilitySeed: Array<{ code: string; category: string; name: string; assistance: string; description: string }> = [
@@ -99,22 +129,22 @@ const vulnerabilitySeed: Array<{ code: string; category: string; name: string; a
   { code: "PENYAKIT_KRONIS", category: "PENYAKIT_KRONIS", name: "Penyakit kronis", assistance: "Bawa obat, dokumen medis, dan periksa kebutuhan klinis.", description: "Memerlukan obat rutin dan pemantauan kondisi saat dipindahkan." }
 ];
 
-/** Pusat dusun hanya untuk menyebar koordinat dummy; tabel hamlets tidak menyimpan koordinat. */
-const hamlets = [
-  { n: 1, name: "Dusun Tanah Merah", lat: 4.8275, lng: 97.4155 },
-  { n: 2, name: "Dusun Contoh 2 (placeholder)", lat: 4.8238, lng: 97.4192 },
-  { n: 3, name: "Dusun Contoh 3 (placeholder)", lat: 4.8302, lng: 97.4208 }
+/** Titik acuan hanya untuk menyebar koordinat dummy rumah di sekitar desa; bukan wilayah administratif. */
+const clusters = [
+  { n: 1, name: "Kawasan Tanah Merah", lat: 4.8484, lng: 97.4728 },
+  { n: 2, name: "Titik acuan 2", lat: 4.8447, lng: 97.4765 },
+  { n: 3, name: "Titik acuan 3", lat: 4.8511, lng: 97.4781 }
 ];
 
 type Ability = "MANDIRI" | "PERLU_BANTUAN" | "TIDAK_BISA_SENDIRI";
 
 interface ResidentSeed {
   n: number;
-  hamlet: number;
+  cluster: number;
   name: string;
   birth: string;
   gender: "LAKI_LAKI" | "PEREMPUAN" | "LAINNYA";
-  /** Selisih derajat dari pusat dusun (±0.001 derajat sekitar 110 m). */
+  /** Selisih derajat dari titik acuan (±0.001 derajat sekitar 110 m). */
   at: [number, number];
   alone: boolean;
   ability: Ability;
@@ -133,7 +163,7 @@ interface ResidentSeed {
 const residentSeed: ResidentSeed[] = [
   // --- Disabilitas
   {
-    n: 1, hamlet: 1, name: "Teuku Razali", birth: "1983-07-02", gender: "LAKI_LAKI", at: [-0.0005, 0.0004], alone: false,
+    n: 1, cluster: 1, name: "Teuku Razali", birth: "1983-07-02", gender: "LAKI_LAKI", at: [-0.0005, 0.0004], alone: false,
     ability: "TIDAK_BISA_SENDIRI", critical: false,
     mobility: "Menggunakan kursi roda.", communication: "Baik.", medical: null,
     evacuation: "Rumah berundak; perlu kursi roda dan dua orang untuk mengangkat.",
@@ -141,7 +171,7 @@ const residentSeed: ResidentSeed[] = [
     contacts: [["Nurlaila", "Istri", "0812-0000-0101", true]]
   },
   {
-    n: 2, hamlet: 1, name: "Syarifah Aini", birth: "1996-11-21", gender: "PEREMPUAN", at: [0.0007, 0.0002], alone: false,
+    n: 2, cluster: 1, name: "Syarifah Aini", birth: "1996-11-21", gender: "PEREMPUAN", at: [0.0007, 0.0002], alone: false,
     ability: "MANDIRI", critical: false,
     mobility: null, communication: "Tunarungu; gunakan teks dan isyarat, alarm suara tidak terdengar.", medical: null,
     evacuation: "Dapat berjalan sendiri bila diberi tanda cahaya atau getaran.",
@@ -149,7 +179,7 @@ const residentSeed: ResidentSeed[] = [
     contacts: [["Hasanah", "Ibu", "0812-0000-0102", true]]
   },
   {
-    n: 3, hamlet: 2, name: "Ismail Hasan", birth: "1971-09-18", gender: "LAKI_LAKI", at: [-0.0006, 0.0003], alone: false,
+    n: 3, cluster: 2, name: "Ismail Hasan", birth: "1971-09-18", gender: "LAKI_LAKI", at: [-0.0006, 0.0003], alone: false,
     ability: "PERLU_BANTUAN", critical: false,
     mobility: "Berjalan dengan pendamping.", communication: "Tunanetra; berikan arahan suara.", medical: null,
     evacuation: "Pendamping keluarga di rumah; sebutkan arah dan hambatan secara verbal.",
@@ -158,7 +188,7 @@ const residentSeed: ResidentSeed[] = [
   },
   // --- Lansia
   {
-    n: 4, hamlet: 2, name: "Abdullah Yusuf", birth: "1944-05-30", gender: "LAKI_LAKI", at: [-0.0003, -0.0004], alone: true,
+    n: 4, cluster: 2, name: "Abdullah Yusuf", birth: "1944-05-30", gender: "LAKI_LAKI", at: [-0.0003, -0.0004], alone: true,
     ability: "TIDAK_BISA_SENDIRI", critical: false,
     mobility: "Pasca-stroke, tidak dapat berjalan.", communication: "Bicara terbatas.", medical: "Pasca-stroke; obat tekanan darah rutin.",
     evacuation: "Perlu tandu dan dua orang; rumah di titik rendah.",
@@ -169,7 +199,7 @@ const residentSeed: ResidentSeed[] = [
     contacts: [["Rizki", "Cucu", "0812-0000-0104", false]]
   },
   {
-    n: 5, hamlet: 1, name: "Cut Maryam", birth: "1949-03-14", gender: "PEREMPUAN", at: [0.0004, -0.0006], alone: true,
+    n: 5, cluster: 1, name: "Cut Maryam", birth: "1949-03-14", gender: "PEREMPUAN", at: [0.0004, -0.0006], alone: true,
     ability: "PERLU_BANTUAN", critical: false,
     mobility: "Berjalan dengan tongkat, tidak kuat berjalan jauh.", communication: "Dapat mendengar, bicara pelan.", medical: null,
     evacuation: "Perlu satu pendamping dan jalur tanpa genangan.",
@@ -177,7 +207,7 @@ const residentSeed: ResidentSeed[] = [
     contacts: [["Zulkifli", "Anak", "0812-0000-0105", false]]
   },
   {
-    n: 6, hamlet: 3, name: "Nurmala Dewi", birth: "1957-12-05", gender: "PEREMPUAN", at: [0.0003, -0.0005], alone: false,
+    n: 6, cluster: 3, name: "Nurmala Dewi", birth: "1957-12-05", gender: "PEREMPUAN", at: [0.0003, -0.0005], alone: false,
     ability: "PERLU_BANTUAN", critical: true,
     mobility: "Berjalan pendek.", communication: "Baik.", medical: "Diabetes; suntik insulin harian, perlu jadwal makan.",
     evacuation: "Bawa insulin (disimpan dingin) dan makanan ringan.",
@@ -189,7 +219,7 @@ const residentSeed: ResidentSeed[] = [
   },
   // --- Ibu hamil
   {
-    n: 7, hamlet: 2, name: "Mahdalena", birth: "1993-02-09", gender: "PEREMPUAN", at: [0.0005, 0.0006], alone: false,
+    n: 7, cluster: 2, name: "Mahdalena", birth: "1993-02-09", gender: "PEREMPUAN", at: [0.0005, 0.0006], alone: false,
     ability: "MANDIRI", critical: true,
     mobility: null, communication: "Baik.", medical: "Hamil 8 bulan, perkiraan lahir dalam sekitar 2 minggu; kontrol di bidan desa.",
     evacuation: "Butuh kendaraan, hindari berjalan jauh; hubungi bidan desa.",
@@ -197,7 +227,7 @@ const residentSeed: ResidentSeed[] = [
     contacts: [["Syamsul", "Suami", "0812-0000-0107", true]]
   },
   {
-    n: 8, hamlet: 3, name: "Rahmi", birth: "1998-08-12", gender: "PEREMPUAN", at: [-0.0004, 0.0006], alone: false,
+    n: 8, cluster: 3, name: "Rahmi", birth: "1998-08-12", gender: "PEREMPUAN", at: [-0.0004, 0.0006], alone: false,
     ability: "MANDIRI", critical: false,
     mobility: null, communication: "Baik.", medical: "Hamil 5 bulan, sehat.",
     evacuation: "Dapat evakuasi sendiri bersama suami.",
@@ -205,7 +235,7 @@ const residentSeed: ResidentSeed[] = [
     contacts: [["Fadhil", "Suami", "0812-0000-0108", true]]
   },
   {
-    n: 9, hamlet: 1, name: "Nurul Huda", birth: "1995-03-27", gender: "PEREMPUAN", at: [-0.0007, -0.0003], alone: true,
+    n: 9, cluster: 1, name: "Nurul Huda", birth: "1995-03-27", gender: "PEREMPUAN", at: [-0.0007, -0.0003], alone: true,
     ability: "MANDIRI", critical: false,
     mobility: null, communication: "Baik.", medical: "Hamil 7 bulan.",
     evacuation: "Suami merantau; tinggal sendiri, butuh pendamping dan kendaraan bila air tinggi.",
@@ -228,23 +258,26 @@ const deviceSeed: Array<{ id: string; resident: number | null; battery: number; 
 ];
 
 const gatewaySeed = [
-  { n: 1, code: "GW-LEUBOKPUSAKA-01", name: "Gateway Dusun Tanah Merah", lat: 4.8279, lng: 97.4158, online: true }
+  { n: 1, code: "GW-LEUBOKPUSAKA-01", name: "Gateway Kawasan Tanah Merah", lat: 4.8488, lng: 97.4731, online: true }
 ];
 
 const hazardSeed = [
-  { n: 1, name: "Dataran banjir Dusun Tanah Merah", hazard_type: "BANJIR", risk_level: 5, lat: 4.8275, lng: 97.4155, radius: 450, notes: "Banjir 26 November 2025 dilaporkan mencapai sekitar 5 meter di dusun ini (Kompas). Batas zona perkiraan, bukan hasil pemetaan resmi." },
-  { n: 2, name: "Titik rendah Dusun Contoh 2", hazard_type: "BANJIR", risk_level: 4, lat: 4.8238, lng: 97.4192, radius: 280, notes: "Titik rendah rawan genangan (data dummy; Desa menentukan titik sebenarnya)." }
+  { n: 1, name: "Dataran banjir kawasan Tanah Merah", hazard_type: "BANJIR", risk_level: 5, lat: 4.8484, lng: 97.4728, radius: 450, notes: "Banjir 26 November 2025 dilaporkan mencapai sekitar 5 meter di kawasan ini (Kompas)." },
+  { n: 2, name: "Titik rendah", hazard_type: "BANJIR", risk_level: 4, lat: 4.8447, lng: 97.4765, radius: 280, notes: "Titik rendah rawan genangan saat sungai meluap." }
 ];
 
 const shelterSeed = [
-  { n: 1, name: "Meunasah Leubok Pusaka (titik kumpul usulan)", address: "Lokasi usulan, belum diverifikasi", lat: 4.8291, lng: 97.4181, capacity: 100, notes: "Usulan di tanah lebih tinggi; perlu verifikasi lapangan." },
-  { n: 2, name: "Lapangan desa (titik kumpul usulan)", address: "Lokasi usulan, belum diverifikasi", lat: 4.8312, lng: 97.4175, capacity: 150, notes: "Lahan terbuka untuk tenda darurat; perlu verifikasi lapangan." }
+  { n: 1, name: "Meunasah Leubok Pusaka", address: "Gampong Leubok Pusaka", lat: 4.8500, lng: 97.4754, capacity: 100, notes: "Titik kumpul utama warga." },
+  { n: 2, name: "Lapangan desa", address: "Gampong Leubok Pusaka", lat: 4.8521, lng: 97.4748, capacity: 150, notes: "Lahan terbuka untuk tenda darurat." },
+  { n: 3, name: "Sekolah di Leubok Pusaka", address: "Gampong Leubok Pusaka", lat: 4.8477, lng: 97.4772, capacity: 60, notes: "Satu lantai; dipakai sebagai cadangan sementara." }
 ];
 
 const teamSeed = [
-  { n: 1, org: 3, name: "TRC BPBD Aceh Utara 01", call_sign: "TRC-01", vehicle: "Truk dan perahu karet", status: "AVAILABLE", leader: 3, lat: 4.84, lng: 97.4 },
-  { n: 2, org: 3, name: "TRC BPBD Aceh Utara 02", call_sign: "TRC-02", vehicle: "Ambulans lapangan", status: "AVAILABLE", leader: 3, lat: 4.838, lng: 97.402 },
-  { n: 3, org: 4, name: "Damkar Aceh Utara 01", call_sign: "DAMKAR-01", vehicle: "Perahu fiberglass", status: "AVAILABLE", leader: 4, lat: 4.835, lng: 97.405 }
+  { n: 1, org: 3, name: "TRC BPBD Aceh Utara 01", call_sign: "TRC-01", vehicle: "Truk dan perahu karet", status: "AVAILABLE", leader: 3, lat: 4.8625, lng: 97.4765 },
+  { n: 2, org: 3, name: "TRC BPBD Aceh Utara 02", call_sign: "TRC-02", vehicle: "Ambulans lapangan", status: "AVAILABLE", leader: 3, lat: 4.8628, lng: 97.4768 },
+  { n: 3, org: 4, name: "Damkar Aceh Utara 01", call_sign: "DAMKAR-01", vehicle: "Perahu fiberglass", status: "AVAILABLE", leader: 4, lat: 4.862, lng: 97.476 },
+  // Relawan desa juga bertugas sebagai JAGA Rescue: warga yang paling cepat tiba saat jalan terputus.
+  { n: 4, org: 7, name: "Tim Siaga Gampong Leubok Pusaka", call_sign: "SIAGA-LP", vehicle: "Sepeda motor dan tandu", status: "AVAILABLE", leader: 7, lat: 4.8476, lng: 97.4735 }
 ];
 
 /**
@@ -290,9 +323,81 @@ const thresholdSeed = [
 ];
 
 const incidentSeed = [
-  { n: 1, resident: 4, device: "JAGA-0004", severity: "SIAGA", status: "ACKNOWLEDGED", description: "Air mulai masuk rumah; warga pasca-stroke tidak dapat berjalan. (dummy)", createdAgo: 25 * 60_000, updates: ["NEW", "ACKNOWLEDGED"] },
-  { n: 2, resident: 5, device: "JAGA-0005", severity: "SIAGA", status: "SAFE", description: "Warga lansia tinggal sendiri, rumah tergenang. (dummy)", createdAgo: 2 * DAY, updates: ["NEW", "ACKNOWLEDGED", "ASSIGNED", "EN_ROUTE", "ARRIVED", "EVACUATED", "SAFE"] }
+  { n: 1, resident: 4, device: "JAGA-0004", severity: "SIAGA", status: "ACKNOWLEDGED", description: "Air mulai masuk rumah; warga pasca-stroke tidak dapat berjalan.", createdAgo: 25 * 60_000, updates: ["NEW", "ACKNOWLEDGED"] },
+  { n: 2, resident: 5, device: "JAGA-0005", severity: "SIAGA", status: "SAFE", description: "Warga lansia tinggal sendiri, rumah tergenang.", createdAgo: 2 * DAY, updates: ["NEW", "ACKNOWLEDGED", "ASSIGNED", "EN_ROUTE", "ARRIVED", "EVACUATED", "SAFE"] }
 ];
+
+
+/**
+ * Dua desa tetangga di Kecamatan Langkahan (koordinat titik tengah dari OpenStreetMap: place Seureke dan Buketlinteung).
+ * Warga, kalung, titik kumpul, dan zona bahaya hanya data contoh; masing-masing desa berisi 3 warga (disabilitas, lansia, ibu hamil).
+ */
+const neighborSeed: Array<{
+  n: number; name: string; lat: number; lng: number; access: string;
+  hazard: { name: string; risk: number; dLat: number; dLng: number; radius: number; notes: string };
+  shelter: { name: string; capacity: number; dLat: number; dLng: number; notes: string };
+  residents: ResidentSeed[];
+  devices: Array<{ id: string; battery: number; online: boolean }>;
+}> = [
+  {
+    n: 2, name: "Gampong Seureuke", lat: 4.8913, lng: 97.4316,
+    access: "Desa di tepi aliran sungai; jalan desa sempit dan dapat tergenang saat hujan deras.",
+    hazard: { name: "Dataran rendah tepi sungai Seureuke", risk: 4, dLat: -0.0008, dLng: 0.0006, radius: 320, notes: "Rawan genangan saat sungai meluap." },
+    shelter: { name: "Meunasah Gampong Seureuke", capacity: 80, dLat: 0.0012, dLng: -0.0006, notes: "Titik kumpul utama warga." },
+    residents: [
+      {
+        n: 101, cluster: 0, name: "Fauzan Maulana", birth: "1999-04-11", gender: "LAKI_LAKI", at: [-0.0004, 0.0003], alone: false, ability: "PERLU_BANTUAN", critical: false,
+        mobility: "Dapat berjalan, perlu didampingi karena mudah panik.", communication: "Instruksi singkat dan berulang; tinggal bersama ibu.",
+        medical: null, evacuation: "Ibu mendampingi; perlu pendamping bila ibu tidak di rumah.",
+        vulns: [["DISABILITAS_INTELEKTUAL", 3, "Perlu instruksi sederhana dan pendamping tepercaya"]],
+        contacts: [["Salmah", "Ibu", "0812-0000-1101", true]]
+      },
+      {
+        n: 102, cluster: 0, name: "Nurbaiti", birth: "1950-08-02", gender: "PEREMPUAN", at: [0.0006, 0.0004], alone: true, ability: "PERLU_BANTUAN", critical: false,
+        mobility: "Berjalan dengan tongkat, tinggal sendiri.", communication: null, medical: "Tekanan darah tinggi.", evacuation: "Perlu didampingi menuju meunasah.",
+        vulns: [["LANSIA", 3, "Stamina menurun"], ["PENYAKIT_KRONIS", 2, "Hipertensi"]],
+        contacts: [["Hafidz", "Cucu", "0812-0000-1102", false]]
+      },
+      {
+        n: 103, cluster: 0, name: "Cut Rosnita", birth: "1997-01-19", gender: "PEREMPUAN", at: [0.0002, -0.0007], alone: false, ability: "MANDIRI", critical: false,
+        mobility: null, communication: null, medical: "Hamil 7 bulan, pemeriksaan rutin di bidan desa.", evacuation: "Butuh kendaraan bila harus mengungsi jauh.",
+        vulns: [["IBU_HAMIL", 3, "Hamil 7 bulan"]],
+        contacts: [["Razali", "Suami", "0812-0000-1103", true]]
+      }
+    ],
+    devices: [{ id: "JAGA-0101", battery: 74, online: true }, { id: "JAGA-0102", battery: 58, online: true }, { id: "JAGA-0103", battery: 90, online: true }]
+  },
+  {
+    n: 3, name: "Gampong Buket Linteung", lat: 4.9077, lng: 97.4699,
+    access: "Desa dengan akses jalan utama; bagian belakang desa mudah terisolasi saat banjir.",
+    hazard: { name: "Dataran banjir Buket Linteung", risk: 4, dLat: 0.0007, dLng: -0.0005, radius: 300, notes: "Tergenang saat banjir luapan." },
+    shelter: { name: "Meunasah Gampong Buket Linteung", capacity: 90, dLat: -0.0011, dLng: 0.0008, notes: "Titik kumpul utama warga." },
+    residents: [
+      {
+        n: 104, cluster: 0, name: "Zainal Abidin", birth: "1962-06-25", gender: "LAKI_LAKI", at: [-0.0003, -0.0004], alone: false, ability: "PERLU_BANTUAN", critical: false,
+        mobility: "Berjalan dengan kruk; sulit melewati jalan becek.", communication: null, medical: null, evacuation: "Butuh bantuan melewati jalan tergenang.",
+        vulns: [["TUNADAKSA", 3, "Pengguna kruk"]],
+        contacts: [["Marlina", "Istri", "0812-0000-1104", true]]
+      },
+      {
+        n: 105, cluster: 0, name: "Abu Bakar", birth: "1947-10-09", gender: "LAKI_LAKI", at: [0.0005, 0.0006], alone: true, ability: "TIDAK_BISA_SENDIRI", critical: true,
+        mobility: "Lemah, sulit berjalan jauh, tinggal sendiri.", communication: null, medical: "Diabetes dengan suntik insulin harian.", evacuation: "Perlu diangkat; bawa insulin dan obat.",
+        vulns: [["LANSIA", 4, "Lemah dan tinggal sendiri"], ["PENYAKIT_KRONIS", 4, "Diabetes, insulin"]],
+        contacts: [["Syukri", "Keponakan", "0812-0000-1105", false]]
+      },
+      {
+        n: 106, cluster: 0, name: "Maulida", birth: "1994-12-30", gender: "PEREMPUAN", at: [-0.0006, 0.0002], alone: false, ability: "MANDIRI", critical: false,
+        mobility: null, communication: null, medical: "Hamil 5 bulan, kondisi sehat.", evacuation: null,
+        vulns: [["IBU_HAMIL", 2, "Hamil 5 bulan"]],
+        contacts: [["Jamaluddin", "Suami", "0812-0000-1106", true]]
+      }
+    ],
+    devices: [{ id: "JAGA-0104", battery: 66, online: true }, { id: "JAGA-0105", battery: 31, online: true }, { id: "JAGA-0106", battery: 85, online: true }]
+  }
+];
+
+/** Kalung yang masih di gudang JAGA Pusat (belum didistribusikan ke desa mana pun). */
+const warehouseDevices = ["JAGA-0030", "JAGA-0031", "JAGA-0032"];
 
 export interface DemoData {
   tables: Record<string, Row[]>;
@@ -309,9 +414,9 @@ export function buildDemoData(): DemoData {
   const villageId = id("10000000", village.n);
   const desaProfile = id("50000000", 2);
 
-  const hamletOf = (n: number) => hamlets.find(item => item.n === n)!;
+  const clusterOf = (n: number) => clusters.find(item => item.n === n)!;
   const residentPoint = (resident: ResidentSeed) => {
-    const center = hamletOf(resident.hamlet);
+    const center = clusterOf(resident.cluster);
     return { lat: Number((center.lat + resident.at[0]).toFixed(6)), lng: Number((center.lng + resident.at[1]).toFixed(6)) };
   };
   const residentOf = (n: number | null) => (n === null ? null : residentSeed.find(entry => entry.n === n) ?? null);
@@ -332,15 +437,11 @@ export function buildDemoData(): DemoData {
     center: point(village.lat, village.lng),
     access_notes: village.access,
     population: village.population,
+    head_name: "Keuchik Yusman",
+    head_phone: "0812-1000-0001",
     active: true,
     created_at: created
   }];
-  tables.hamlets = hamlets.map(hamlet => ({
-    id: id("11000000", hamlet.n),
-    village_id: villageId,
-    name: hamlet.name,
-    created_at: created
-  }));
 
   tables.organizations = organizations.map(org => ({
     id: id("40000000", org.n),
@@ -354,7 +455,7 @@ export function buildDemoData(): DemoData {
   }));
   tables.organization_service_areas = [];
   DEMO_ACCOUNTS.forEach(account => {
-    push("organization_service_areas", { organization_id: id("40000000", account.org), village_id: villageId });
+    for (const n of account.villages) push("organization_service_areas", { organization_id: id("40000000", account.org), village_id: id("10000000", n) });
   });
   tables.profiles = DEMO_ACCOUNTS.map((account, index) => ({
     id: id("50000000", index + 1),
@@ -391,12 +492,11 @@ export function buildDemoData(): DemoData {
     return {
       id: id("20000000", resident.n),
       village_id: villageId,
-      hamlet_id: id("11000000", resident.hamlet),
       full_name: resident.name,
       birth_date: resident.birth,
       gender: resident.gender,
       phone: `0812-0000-0${200 + resident.n}`,
-      address: `${hamletOf(resident.hamlet).name}, ${village.name} (alamat dummy)`,
+      address: village.name,
       latitude: at.lat,
       longitude: at.lng,
       location: point(at.lat, at.lng),
@@ -455,11 +555,15 @@ export function buildDemoData(): DemoData {
       model: "JAGA Rumah v1",
       firmware_version: "1.4.2",
       status: device.status,
-      latitude: at.lat,
+      // JAGA-0001 sedang ±120 m dari rumah (contoh posisi GPS berbeda dari alamat).
+      latitude: device.id === "JAGA-0001" ? Number((at.lat + 0.0011).toFixed(6)) : at.lat,
       longitude: at.lng,
       battery: device.battery,
       online: device.online,
       last_seen_at: device.online ? ago(3 * 60_000) : ago(3 * HOUR),
+      // Posisi GPS terakhir (kalung dipakai di badan, jadi bisa berbeda dari rumah). Stok belum punya posisi GPS.
+      location_at: device.resident === null ? null : device.online ? ago(2 * 60_000) : ago(3 * HOUR),
+      location_accuracy_m: device.resident === null ? null : device.online ? 8 : 25,
       auth_key_hash: sha256Hex(key),
       notes: "",
       created_at: created
@@ -495,7 +599,24 @@ export function buildDemoData(): DemoData {
       created_at: created
     };
   });
-  tables.device_telemetry = [];
+  // Riwayat posisi beberapa kalung (6 titik dalam 90 menit) agar jejak dan telemetri dapat didemonstrasikan.
+  tables.device_telemetry = ["JAGA-0001", "JAGA-0002", "JAGA-0003"].flatMap(deviceId => {
+    const row = tables.devices!.find(item => item.id === deviceId)!;
+    return [90, 75, 60, 45, 30, 15].map((minutes, i) => ({
+      device_id: deviceId,
+      gateway_id: id("e0000000", 1),
+      battery: Math.min(100, Number(row.battery) + (5 - i)),
+      signal_strength: -85 - i,
+      temperature: null,
+      payload: {},
+      latitude: Number((Number(row.latitude) - (5 - i) * 0.0002).toFixed(6)),
+      longitude: Number((Number(row.longitude) - (5 - i) * 0.0001).toFixed(6)),
+      accuracy_m: 10 + i,
+      gps_fix: true,
+      satellites: 7 + (i % 3),
+      recorded_at: ago(minutes * 60_000)
+    }));
+  });
 
   tables.hazard_zones = hazardSeed.map(zone => ({
     id: id("80000000", zone.n),
@@ -549,31 +670,17 @@ export function buildDemoData(): DemoData {
   tables.priority_rule_sets = [
     {
       id: id("c0000000", 1),
-      name: "Aturan Prioritas DUMMY (bukan standar resmi)",
+      name: "Aturan Prioritas Banjir",
       disaster_type: null,
       version: 1,
       status: "ACTIVE",
-      description: "Aturan contoh untuk demo. Bobot nyata harus disahkan JAGA Pusat bersama BPBD, Dinsos, dan organisasi penyandang disabilitas.",
+      description: "Aturan prioritas penyelamatan: ancaman, kemampuan mengungsi, dan kebutuhan medis.",
       applies_from: created,
       applies_until: null,
       created_by: id("50000000", 1),
       approved_by: id("50000000", 1),
       approved_at: created,
       created_at: created
-    },
-    {
-      id: id("c0000000", 2),
-      name: "Aturan Prioritas DUMMY - revisi 2 (draf)",
-      disaster_type: null,
-      version: 2,
-      status: "DRAFT",
-      description: "Draf contoh: menaikkan bobot akses terisolasi.",
-      applies_from: null,
-      applies_until: null,
-      created_by: id("50000000", 1),
-      approved_by: null,
-      approved_at: null,
-      created_at: ago(2 * DAY)
     }
   ];
   tables.priority_rules = ruleSeed.map((rule, index) => ({
@@ -588,22 +695,7 @@ export function buildDemoData(): DemoData {
     active: true,
     created_at: created
   }));
-  tables.priority_rules.push({
-    id: id("d0000000", 100),
-    rule_set_id: id("c0000000", 2),
-    factor_key: "terrain_isolation",
-    operator: "GTE",
-    comparison_value: 4,
-    score_delta: 15,
-    explanation: "Akses menuju desa sulit atau mudah terputus (bobot dinaikkan pada draf).",
-    display_order: 130,
-    active: true,
-    created_at: ago(2 * DAY)
-  });
-  tables.priority_thresholds = [
-    ...thresholdSeed.map(threshold => ({ rule_set_id: id("c0000000", 1), ...threshold })),
-    ...thresholdSeed.map(threshold => ({ rule_set_id: id("c0000000", 2), ...threshold }))
-  ];
+  tables.priority_thresholds = thresholdSeed.map(threshold => ({ rule_set_id: id("c0000000", 1), ...threshold }));
 
   tables.priority_recommendations = [];
   tables.priority_overrides = [];
@@ -627,7 +719,7 @@ export function buildDemoData(): DemoData {
       longitude: at.lng,
       status: incident.status,
       description: incident.description,
-      resolution_notes: closed ? "Dievakuasi ke titik kumpul usulan; kondisi baik. (dummy)" : null,
+      resolution_notes: closed ? "Dievakuasi ke titik kumpul; kondisi baik." : null,
       source: "DEVICE",
       created_at: createdAt,
       acknowledged_at: incident.updates.length > 1 ? new Date(Date.parse(createdAt) + 4 * 60_000).toISOString() : null,
@@ -651,13 +743,13 @@ export function buildDemoData(): DemoData {
       incident_id: incidentId,
       assessed_by: desaProfile,
       source: "DESA",
-      summary: "Kondisi dikonfirmasi petugas desa lewat pengamatan langsung. (dummy)",
+      summary: "Kondisi dikonfirmasi petugas desa lewat pengamatan langsung.",
       observed_at: createdAt,
       created_at: createdAt
     });
     const factors: Array<[string, unknown]> = incident.n === 1 ? [["flood_depth_cm", 40], ["structure_risk", 2]] : [["flood_depth_cm", 30]];
     factors.forEach(([key, value]) => {
-      push("assessment_factors", { assessment_id: assessmentId, factor_key: key, factor_value: value, source_note: "Pengamatan Desa (dummy)", recorded_at: createdAt });
+      push("assessment_factors", { assessment_id: assessmentId, factor_key: key, factor_value: value, source_note: "Pengamatan Desa", recorded_at: createdAt });
     });
   });
 
@@ -682,7 +774,7 @@ export function buildDemoData(): DemoData {
     target_type: "DESA",
     target_reference: null,
     severity: "WASPADA",
-    message: "Waspada: permukaan sungai naik, pantau informasi dari petugas desa. (dummy)",
+    message: "Waspada: permukaan sungai naik, pantau informasi dari petugas desa.",
     status: "ACKNOWLEDGED",
     requested_by: desaProfile,
     created_at: ago(oldAlertAt),
@@ -700,20 +792,156 @@ export function buildDemoData(): DemoData {
       failure_reason: device.online ? null : "Perangkat tidak menjawab dalam 60 detik."
     }));
 
-  tables.notifications = [];
+  const sosDevice = tables.devices.find(item => item.id === "JAGA-0004")!;
+  tables.notifications = [{
+    id: id("0d000000", 1),
+    profile_id: null,
+    village_id: villageId,
+    resident_id: null,
+    incident_id: id("90000000", 1),
+    channel: "IN_APP",
+    title: "SOS",
+    body: `Kalung JAGA-0004 menekan SOS di ${village.name} · lokasi terakhir ${Number(sosDevice.latitude).toFixed(5)}, ${Number(sosDevice.longitude).toFixed(5)}`,
+    destination: villageId,
+    template_code: "SOS",
+    status: "QUEUED",
+    created_at: ago(25 * 60_000)
+  }];
   tables.audit_logs = [];
   tables.sync_operations = [];
   tables.attachments = [];
+
+
+  // --- Desa tetangga (data contoh)
+  const neighborVillageId = (n: number) => id("10000000", n);
+  const HEAD_NAMES = ["Imum Firmansyah", "Imum Hamidan"];
+  neighborSeed.forEach((nv, vIndex) => {
+    push("villages", {
+      id: neighborVillageId(nv.n), government_code: null, district_id: "110818", name: nv.name, district: "Kecamatan Langkahan",
+      province: "Aceh", regency: "Kabupaten Aceh Utara", latitude: nv.lat, longitude: nv.lng, center: point(nv.lat, nv.lng),
+      access_notes: nv.access, population: null, head_name: HEAD_NAMES[vIndex] ?? null, head_phone: `0812-0000-02${10 + vIndex}`, active: true, created_at: created
+    });
+    push("hazard_zones", {
+      id: id("80000000", 3 + vIndex), village_id: neighborVillageId(nv.n), name: nv.hazard.name, hazard_type: "BANJIR",
+      risk_level: nv.hazard.risk, center_latitude: Number((nv.lat + nv.hazard.dLat).toFixed(6)), center_longitude: Number((nv.lng + nv.hazard.dLng).toFixed(6)),
+      radius_meters: nv.hazard.radius, area: circle(nv.lat + nv.hazard.dLat, nv.lng + nv.hazard.dLng, nv.hazard.radius),
+      access_notes: nv.hazard.notes, active_from: ago(6 * HOUR), active_until: null, active: true, created_at: created
+    });
+    const sLat = Number((nv.lat + nv.shelter.dLat).toFixed(6)), sLng = Number((nv.lng + nv.shelter.dLng).toFixed(6));
+    push("evacuation_shelters", {
+      id: id("70000000", 4 + vIndex), village_id: neighborVillageId(nv.n), name: nv.shelter.name, address: nv.name,
+      latitude: sLat, longitude: sLng, location: point(sLat, sLng), capacity: nv.shelter.capacity,
+      accessibility_notes: nv.shelter.notes, active: true
+    });
+    nv.residents.forEach((resident, rIndex) => {
+      const lat = Number((nv.lat + resident.at[0]).toFixed(6)), lng = Number((nv.lng + resident.at[1]).toFixed(6));
+      push("residents", {
+        id: id("20000000", resident.n), village_id: neighborVillageId(nv.n), full_name: resident.name, birth_date: resident.birth,
+        gender: resident.gender, phone: `0812-0000-0${200 + resident.n}`, address: nv.name, latitude: lat, longitude: lng, location: point(lat, lng),
+        lives_alone: resident.alone, evacuation_ability: resident.ability, time_critical_medical: resident.critical,
+        mobility_notes: resident.mobility, communication_notes: resident.communication, medical_notes: resident.medical, evacuation_notes: resident.evacuation,
+        active: true, consented_at: created, created_at: created, updated_at: created
+      });
+      for (const [code, severity, note] of resident.vulns) {
+        const typeId = typeByCode.get(code);
+        if (typeId) push("resident_vulnerabilities", { resident_id: id("20000000", resident.n), vulnerability_type_id: typeId, severity, assistance_notes: note, verified_by: null, verified_at: created });
+      }
+      for (const [name, relationship, phone, livesWith] of resident.contacts) {
+        push("resident_contacts", {
+          id: id("0b000000", (tables.resident_contacts?.length ?? 0) + 1), resident_id: id("20000000", resident.n),
+          name, relationship, phone, is_primary: true, lives_with_resident: livesWith
+        });
+      }
+      const dev = nv.devices[rIndex]!;
+      const key = `jrk_${sha256Hex(`${dev.id}:${DEMO_ACCOUNTS[0]?.email ?? "jaga"}`).slice(0, 32)}`;
+      deviceKeys.push({ deviceId: dev.id, key });
+      push("devices", {
+        id: dev.id, village_id: neighborVillageId(nv.n), owner_name: resident.name, hardware_serial: `SN-${dev.id}-0001`, model: "JAGA Rumah v1",
+        firmware_version: "1.4.2", status: "ASSIGNED", latitude: lat, longitude: lng, battery: dev.battery, online: dev.online,
+        last_seen_at: ago(4 * 60_000), location_at: ago(3 * 60_000), location_accuracy_m: 9, auth_key_hash: sha256Hex(key), notes: "", created_at: created
+      });
+      push("device_assignments", {
+        id: id("30000000", 100 + resident.n), device_id: dev.id, resident_id: id("20000000", resident.n),
+        assigned_by: null, assigned_at: ago(10 * DAY), unassigned_at: null, notes: null
+      });
+    });
+  });
+  // Kalung cadangan di gudang JAGA Pusat: belum punya desa maupun posisi.
+  warehouseDevices.forEach(deviceId => {
+    const key = `jrk_${sha256Hex(`${deviceId}:${DEMO_ACCOUNTS[0]?.email ?? "jaga"}`).slice(0, 32)}`;
+    deviceKeys.push({ deviceId, key });
+    push("devices", {
+      id: deviceId, village_id: null, owner_name: "", hardware_serial: `SN-${deviceId}-0001`, model: "JAGA Rumah v1", firmware_version: "1.4.2",
+      status: "STOCK", latitude: null, longitude: null, battery: 100, online: false, last_seen_at: created, auth_key_hash: sha256Hex(key), notes: "", created_at: created
+    });
+  });
+
+
+  // --- Gateway desa tetangga (SRS: satu titik komando per desa)
+  neighborSeed.forEach(nv => {
+    const code = `GW-${nv.name.replace("Gampong ", "").replace(/\s+/g, "").toUpperCase()}-01`;
+    const key = `gtw_${sha256Hex(`${code}:${DEMO_ACCOUNTS[0]?.email ?? "jaga"}`).slice(0, 32)}`;
+    gatewayKeys.push({ gatewayId: code, key });
+    push("gateways", {
+      id: id("e0000000", nv.n), village_id: neighborVillageId(nv.n), gateway_code: code, name: `Gateway ${nv.name.replace("Gampong ", "")}`,
+      latitude: Number((nv.lat + 0.0004).toFixed(6)), longitude: Number((nv.lng + 0.0003).toFixed(6)), firmware_version: "0.9.1", online: true,
+      last_seen_at: ago(3 * 60_000), auth_key_hash: sha256Hex(key), created_at: created
+    });
+  });
+
+  // --- Pengumuman Pusat dan satu operasi lampau dengan laporan pasca-operasi Rescue
+  tables.announcements = [
+    {
+      id: id("0c000000", 1), title: "Uji kesiapsiagaan kalung bulan ini",
+      body: "Seluruh JAGA Desa diminta memeriksa baterai dan koneksi kalung warga. Laporkan kalung yang rusak lewat menu Kendala teknis.",
+      priority: "INFO", created_by: id("50000000", 1), created_by_name: "Rani Puspita", created_at: ago(6 * HOUR), expires_at: new Date(Date.now() + 7 * DAY).toISOString(), village_ids: null
+    },
+    {
+      id: id("0c000000", 2), title: "Posko banjir Tanah Merah siaga",
+      body: "Gampong Seureuke dan Buket Linteung diminta menyiagakan posko dan memastikan perahu cadangan siap. Koordinasi melalui Pusat.",
+      priority: "PENTING", created_by: id("50000000", 1), created_by_name: "Rani Puspita", created_at: ago(2 * HOUR), expires_at: new Date(Date.now() + 3 * DAY).toISOString(),
+      village_ids: [id("10000000", 2), id("10000000", 3)]
+    }
+  ];
+  const pastOp = id("c1000000", 1);
+  tables.operations = [{
+    id: pastOp, village_id: villageId, status: "CLOSED", severity: "SIAGA", disaster_type: "BANJIR", area_type: "DESA", water_level_cm: 90,
+    note: "Sungai meluap sebagian kawasan Tanah Merah.", alert_command_id: null, opened_by: null, opened_at: ago(3 * DAY),
+    closed_by: null, closed_at: ago(3 * DAY - 5 * HOUR), close_note: "Air surut; seluruh warga berkalung dipastikan aman.", created_at: ago(3 * DAY), updated_at: ago(3 * DAY - 5 * HOUR)
+  }];
+  tables.operation_reports = [{
+    id: id("c2000000", 1), operation_id: pastOp, village_id: villageId, organization_id: id("40000000", 3), organization_name: "BPBD Kabupaten Aceh Utara",
+    team_name: "TRC BPBD Aceh Utara 01", author_id: id("50000000", 3), author_name: "Dimas Prakoso",
+    summary: "Tim menyisir kawasan Tanah Merah dari selatan. Dua warga lansia dievakuasi ke meunasah, satu rumah tidak terjangkau karena jalan tergenang setinggi 80 cm sehingga ditangani dengan perahu.",
+    found_count: 3, evacuated_count: 2, not_found_count: 0, unreachable_count: 1, distance_km: 6.4, created_at: ago(3 * DAY - 6 * HOUR)
+  }];
+
+  // --- Kendala teknis contoh (Desa/Rescue -> Pusat)
+  tables.support_tickets = [
+    {
+      id: id("0e000000", 1), village_id: villageId, organization_id: id("40000000", 2), reporter_id: id("50000000", 2), reporter_role: "DESA",
+      reporter_name: "Zulfahmi", category: "KALUNG", priority: "SEDANG", title: "Baterai kalung JAGA-0004 cepat habis",
+      description: "Sudah diisi daya penuh tetapi turun ke 14% dalam sehari. Mohon dikirim kalung pengganti.", status: "OPEN",
+      resolution_note: null, created_at: ago(5 * HOUR), updated_at: ago(5 * HOUR), resolved_at: null
+    },
+    {
+      id: id("0e000000", 2), village_id: null, organization_id: id("40000000", 3), reporter_id: id("50000000", 3), reporter_role: "RESCUE",
+      reporter_name: "Dimas Prakoso", category: "APLIKASI", priority: "RENDAH", title: "Peta lambat dimuat di lokasi sinyal lemah",
+      description: "Ubin peta lama muncul saat tim berada di luar desa.", status: "IN_PROGRESS",
+      resolution_note: "Sedang diuji paket peta offline.", created_at: ago(2 * DAY), updated_at: ago(DAY), resolved_at: null
+    }
+  ];
 
   tables.internal_accounts = DEMO_ACCOUNTS.map((account, index) => ({
     id: id("a1000000", index + 1),
     email: account.email.toLowerCase(),
     display_name: account.displayName,
+    title: account.title,
     password_hash: hashPassword(account.password),
     role: account.role,
     organization_id: id("40000000", account.org),
     profile_id: id("50000000", index + 1),
-    village_ids: account.villages.map(() => villageId),
+    village_ids: account.role === "PUSAT" ? null : account.villages.map(n => id("10000000", n)),
     must_change_password: false,
     active: true,
     created_at: created
@@ -740,9 +968,8 @@ export async function addIsolationFixture(store: MemoryStore): Promise<void> {
     district: "Kecamatan Langkahan", province: "Aceh", regency: "Kabupaten Aceh Utara", latitude: 4.9, longitude: 97.5,
     access_notes: "Fixture tes.", population: null, active: true, created_at: created
   });
-  await store.insert("hamlets", { id: id("11000000", 9), village_id: villageId, name: "Dusun Fixture", created_at: created });
   await store.insert("residents", {
-    id: id("20000000", 90), village_id: villageId, hamlet_id: id("11000000", 9), full_name: "Warga Fixture Tes", birth_date: "1950-01-01",
+    id: id("20000000", 90), village_id: villageId, full_name: "Warga Fixture Tes", birth_date: "1950-01-01",
     gender: "PEREMPUAN", phone: "0812-0000-9000", address: "Fixture tes", latitude: 4.9001, longitude: 97.5001, lives_alone: true,
     evacuation_ability: "PERLU_BANTUAN", time_critical_medical: false, mobility_notes: null, communication_notes: null,
     medical_notes: null, evacuation_notes: null, active: true, consented_at: created, created_at: created, updated_at: created

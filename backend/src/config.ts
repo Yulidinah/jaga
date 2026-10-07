@@ -37,7 +37,11 @@ export const config = {
   maxPageSize: num(process.env.MAX_PAGE_SIZE, 1000),
 
   /** Perangkat/gateway dianggap offline bila tidak mengirim sinyal selama sekian menit. */
-  deviceOfflineMinutes: num(process.env.DEVICE_OFFLINE_MINUTES, 15)
+  deviceOfflineMinutes: num(process.env.DEVICE_OFFLINE_MINUTES, 15),
+
+  /** Lapisan risiko banjir BNPB InaRISK (WMS). Kosong = tombol Risiko banjir tidak ditampilkan. */
+  inariskWmsUrl: process.env.INARISK_WMS_URL ?? "",
+  inariskWmsLayers: process.env.INARISK_WMS_LAYERS ?? ""
 } as const;
 
 export const supabaseEnabled = Boolean(config.supabaseUrl && config.supabaseSecretKey);

@@ -1,4 +1,4 @@
-import { record } from "../audit.js";
+import { actorOf, record } from "../audit.js";
 import { requireRole, scopeIds } from "../auth.js";
 import { badRequest, clean, conflict, indexBy, notFound, nowIso, oneOf, optionalText, requireUuid, text } from "../lib.js";
 import { publish } from "../realtime.js";
@@ -70,7 +70,7 @@ export async function createRuleSet(ctx: Ctx) {
     version,
     status: "DRAFT",
     description: optionalText(ctx.body.description, "Deskripsi", 2000),
-    created_by: ctx.session.profileId,
+    created_by: actorOf(ctx.session),
     created_at: nowIso()
   });
   await record(ctx.store, {
@@ -115,9 +115,11 @@ export async function saveRules(ctx: Ctx) {
   const rows = items.map((item: Row, index: number) => {
     const factorKey = clean(item.factorKey ?? item.factor_key);
     if (!known.has(factorKey)) throw badRequest(`Faktor ${factorKey} tidak dikenal`, { allowed: Array.from(known) });
-    if (seen.has(factorKey)) throw badRequest(`Faktor ${factorKey} muncul lebih dari sekali`);
-    seen.add(factorKey);
     const operator = oneOf(item.operator ?? "EQ", OPERATORS, "Operator");
+    // Satu faktor boleh punya beberapa ambang (mis. tinggi air 50 cm dan 100 cm); yang dilarang hanya aturan kembar.
+    const ruleKey = JSON.stringify([factorKey, operator, item.comparisonValue ?? item.comparison_value ?? null]);
+    if (seen.has(ruleKey)) throw badRequest(`Aturan ${factorKey} ${operator} yang sama muncul lebih dari sekali`);
+    seen.add(ruleKey);
     const delta = Number(item.scoreDelta ?? item.score_delta ?? 0);
     if (!Number.isFinite(delta)) throw badRequest("scoreDelta harus berupa angka");
     return {
@@ -174,7 +176,7 @@ export async function publishRuleSet(ctx: Ctx) {
     let updated: Row | null;
     try {
       updated = await ctx.store.update("priority_rule_sets", param(ctx, "id"), {
-        status: "ACTIVE", approved_by: ctx.session.profileId, approved_at: nowIso(), applies_from: ruleSet.applies_from ?? nowIso()
+        status: "ACTIVE", approved_by: actorOf(ctx.session), approved_at: nowIso(), applies_from: ruleSet.applies_from ?? nowIso()
       });
     } catch (error) {
       // Kembalikan rule set lama agar tidak ada masa tanpa aturan aktif.
@@ -374,3 +376,44 @@ const FACTOR_EXAMPLES: Record<string, unknown> = {
   device_battery: 45,
   device_online: true
 };
+
+/**
+ * Buat draf revisi dari rule set mana pun (biasanya yang aktif): salinan aturan dan ambang dengan versi berikutnya.
+ * Rule set aktif tidak boleh diubah langsung; seluruh perubahan bobot dilakukan pada draf lalu diaktifkan dengan catatan persetujuan.
+ */
+export async function reviseRuleSet(ctx: Ctx) {
+  requireRole(ctx.session, ["PUSAT"], "Hanya JAGA Pusat yang dapat menyusun rule set");
+  const source = await ctx.store.one("priority_rule_sets", { eq: { id: param(ctx, "id") } });
+  if (!source) throw notFound("Rule set tidak ditemukan");
+  const family = await ctx.store.list("priority_rule_sets", { eq: { name: String(source.name) } });
+  const draft = family.find(row => String(row.status) === "DRAFT");
+  if (draft) return { ...setShape(draft), reused: true };
+  const version = Math.max(...family.map(row => Number(row.version ?? 1)), 1) + 1;
+  const created = await ctx.store.insert("priority_rule_sets", {
+    name: source.name,
+    disaster_type: source.disaster_type ?? null,
+    version,
+    status: "DRAFT",
+    description: source.description ?? null,
+    created_by: actorOf(ctx.session),
+    created_at: nowIso()
+  });
+  const rules = await ctx.store.list("priority_rules", { eq: { rule_set_id: String(source.id) }, order: { display_order: "asc" } });
+  if (rules.length) {
+    await ctx.store.insertMany("priority_rules", rules.map(rule => ({
+      rule_set_id: String(created.id), factor_key: rule.factor_key, operator: rule.operator, comparison_value: rule.comparison_value ?? null,
+      score_delta: rule.score_delta, explanation: rule.explanation, display_order: rule.display_order, active: rule.active !== false
+    })));
+  }
+  const thresholds = await ctx.store.list("priority_thresholds", { eq: { rule_set_id: String(source.id) } });
+  if (thresholds.length) {
+    await ctx.store.insertMany("priority_thresholds", thresholds.map(item => ({
+      rule_set_id: String(created.id), level: item.level, min_score: item.min_score, display_order: item.display_order ?? 0
+    })));
+  }
+  await record(ctx.store, {
+    actorId: ctx.session.profileId, action: "RULESET_REVISE", entityType: "priority_rule_sets",
+    entityId: String(created.id), summary: `Draf revisi ${created.name} v${version} dari v${source.version}`
+  });
+  return { ...setShape(created), reused: false };
+}

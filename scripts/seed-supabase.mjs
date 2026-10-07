@@ -39,16 +39,16 @@ const AUTH_LINKED = new Set(["profiles"]);
 
 /** Urutan hapus untuk --reset (anak lebih dulu). */
 const TABLES = [
-  "operations", "audit_logs", "notifications", "attachments", "command_receipts", "alert_commands",
-  "incident_assignments", "assessment_factors", "incident_assessments",
-  "incident_status_history", "priority_recommendations", "priority_overrides",
+  "support_tickets", "operation_reports", "operations", "announcements", "platform_settings", "audit_logs", "notifications", "attachments", "command_receipts", "alert_commands",
+  "evacuation_routes", "incident_assignments", "assessment_factors", "incident_assessments",
+  "incident_status_history", "priority_recommendations", "priority_overrides", "incidents",
   "priority_thresholds", "priority_rules", "priority_rule_sets",
   "team_location_history", "rescue_team_members", "rescue_teams",
   "device_telemetry", "device_assignments", "devices", "gateways",
   "resident_contacts", "resident_vulnerabilities", "residents",
-  "evacuation_routes", "evacuation_shelters", "hazard_zones",
+  "evacuation_shelters", "hazard_zones",
   "organization_service_areas", "organization_members", "profiles",
-  "organizations", "vulnerability_types", "hamlets", "villages",
+  "organizations", "villages",
   "districts", "regencies", "provinces", "sync_operations"
 ];
 
@@ -66,16 +66,29 @@ async function rest(path, options = {}) {
   return body ? JSON.parse(body) : [];
 }
 
+/** PostgREST menolak sisipan massal bila kunci objek tidak seragam ("All object keys must match"); samakan dengan null. */
+const uniform = rows => {
+  const keys = [...new Set(rows.flatMap(row => Object.keys(row)))];
+  return rows.map(row => Object.fromEntries(keys.map(key => [key, row[key] ?? null])));
+};
+
 const insertRows = (table, rows) =>
   rest(table, {
     method: "POST",
     headers: headers("resolution=merge-duplicates,return=minimal"),
-    body: JSON.stringify(rows)
+    body: JSON.stringify(uniform(rows))
   });
 
-const wipe = table =>
-  rest(`${table}?id=neq.00000000-0000-0000-0000-000000000000`, { method: "DELETE" })
-    .catch(() => rest(`${table}?limit=1`, { method: "DELETE" }));
+const ZERO = "00000000-0000-0000-0000-000000000000";
+/** Kolom penyaring penghapusan per tabel: PostgREST menolak DELETE tanpa filter, dan tipe kuncinya berbeda-beda. */
+const WIPE_FILTER = {
+  audit_logs: "id=gt.0", incident_status_history: "id=gt.0", device_telemetry: "id=gt.0", assessment_factors: "id=gt.0", team_location_history: "id=gt.0",
+  platform_settings: "key=neq.__tidak_ada__",
+  devices: "id=neq.__tidak_ada__", provinces: "id=neq.__tidak_ada__", regencies: "id=neq.__tidak_ada__", districts: "id=neq.__tidak_ada__",
+  priority_thresholds: `rule_set_id=neq.${ZERO}`, resident_vulnerabilities: `resident_id=neq.${ZERO}`, organization_service_areas: `organization_id=neq.${ZERO}`,
+  organization_members: `organization_id=neq.${ZERO}`, rescue_team_members: `team_id=neq.${ZERO}`
+};
+const wipe = table => rest(`${table}?${WIPE_FILTER[table] ?? `id=neq.${ZERO}`}`, { method: "DELETE" });
 
 /** Hapus user Auth lama milik demo agar seed bisa diulang. */
 async function listAuthUsers() {
@@ -112,7 +125,14 @@ async function createAuthUser(account) {
     const message = JSON.stringify(body).toLowerCase();
     if (message.includes("already") || message.includes("registered") || message.includes("exists")) {
       const existing = (await listAuthUsers()).find(user => user.email === account.email);
-      if (existing) { console.log(`    = ${account.email} sudah ada, memakai user yang lama`); return existing.id; }
+      if (existing) {
+        // Samakan kata sandi dengan yang dicetak di akhir, supaya login tidak gagal setelah seed diulang.
+        await fetch(`${config.supabaseUrl}/auth/v1/admin/users/${existing.id}`, {
+          method: "PUT", headers: headers(), body: JSON.stringify({ password: passwordFor(account), email_confirm: true })
+        }).catch(() => undefined);
+        console.log(`    = ${account.email} sudah ada, kata sandi diperbarui`);
+        return existing.id;
+      }
     }
     throw new Error(`${account.email}: ${response.status} ${JSON.stringify(body).slice(0, 200)}`);
   }

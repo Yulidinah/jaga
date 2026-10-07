@@ -20,12 +20,24 @@ Content-Type: application/json
 
 {
   "battery": 87,
-  "latitude": 4.8282,
-  "longitude": 97.4157,
+  "latitude": 4.8479,
+  "longitude": 97.4728,
+  "gpsFix": true,
+  "accuracyMeters": 8,
+  "satellites": 8,
   "signalStrength": -92
 }
 
-### 2. Tombol SOS ditekan. Balasan "ack": "SOS_DITERIMA" dipakai untuk umpan balik di kalung.
+### 1b. Belum dapat fix GPS: kirim gpsFix=false (posisi terakhir dipertahankan, tidak jadi 0,0)
+POST {{base}}/api/device/telemetry
+X-JAGA-Device-Id: {{deviceId}}
+X-JAGA-Device-Key: {{deviceKey}}
+Content-Type: application/json
+
+{ "battery": 86, "gpsFix": false }
+
+### 2. Tombol ditekan = MEMINTA BANTUAN. Tombol terkunci sampai Desa membunyikan alarm (inbox: buttonUnlocked=true);
+###    sebelum itu server menjawab 409 TERKUNCI. Tombol SOS ditekan. Balasan "ack": "SOS_DITERIMA" dipakai untuk umpan balik di kalung.
 ###    Menekan lagi saat SOS masih terbuka tidak membuat insiden baru ("duplicate": true).
 ###    X-JAGA-Gateway-Key hanya disertakan bila lewat gateway.
 POST {{base}}/api/device/sos
@@ -35,12 +47,16 @@ X-JAGA-Gateway-Key: {{gatewayKey}}
 Content-Type: application/json
 
 {
-  "latitude": 4.8282,
-  "longitude": 97.4157,
+  "latitude": 4.8479,
+  "longitude": 97.4728,
+  "gpsFix": true,
+  "accuracyMeters": 8,
   "description": "Tombol SOS ditekan"
 }
 
-### 3. Ambil alarm yang menunggu. Setiap perintah punya "receiptId" dan "severity" (WASPADA | SIAGA | EVAKUASI).
+### 3. Ambil alarm yang menunggu. Setiap perintah punya "receiptId", "severity" (WASPADA | SIAGA | AWAS) dan
+###    "media" (SUARA/GETAR/CAHAYA). Sinyal darurat satu tombol dari web tiba di sini sebagai severity AWAS.
+###    "activeSos" memberi status SOS kalung ini; "nextPollSeconds" = jeda tarik berikutnya (30 saat darurat, 300 normal).
 ###    Mengambil inbox menandai perintah sebagai terkirim (QUEUED -> SENT).
 GET {{base}}/api/device/inbox
 X-JAGA-Device-Id: {{deviceId}}
@@ -66,3 +82,20 @@ Content-Type: application/json
 GET {{base}}/api/device/location
 X-JAGA-Device-Id: {{deviceId}}
 X-JAGA-Device-Key: {{deviceKey}}
+
+### 6. Gateway desa: ambil alarm yang harus diteruskan lewat LoRa (dan kalung yang tombolnya harus dibuka)
+GET {{base}}/api/gateway/outbox
+X-JAGA-Gateway-Key: {{gatewayKey}}
+
+### 7. Gateway desa: unggah massal setelah internet kembali (store-and-forward, recordedAt = waktu asli di lapangan)
+POST {{base}}/api/gateway/ingest
+X-JAGA-Gateway-Key: {{gatewayKey}}
+Content-Type: application/json
+
+{
+  "events": [
+    { "type": "telemetry", "deviceId": "JAGA-0003", "battery": 71, "latitude": 4.8479, "longitude": 97.4728, "gpsFix": true, "recordedAt": "2026-10-06T03:10:00Z" },
+    { "type": "assist", "deviceId": "JAGA-0003", "latitude": 4.8479, "longitude": 97.4728 },
+    { "type": "receipt", "receiptId": "GANTI_RECEIPT_ID", "status": "ACKNOWLEDGED" }
+  ]
+}

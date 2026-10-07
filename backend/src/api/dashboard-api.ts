@@ -8,6 +8,7 @@ import { param, type Ctx } from "../router.js";
 import type { RecommendationLevel, Row } from "../types.js";
 import { loadSupportProfile, scopedQuery } from "./common.js";
 import { statusLabel } from "./incidents-api.js";
+import { outcomes } from "./platform-api.js";
 import { rescueOperationFor, rescueVisible } from "./operations-api.js";
 
 const CLOSED = new Set(["SAFE", "CANCELLED", "CLOSED"]);
@@ -15,14 +16,14 @@ const CLOSED = new Set(["SAFE", "CANCELLED", "CLOSED"]);
 const uniqueIds = (rows: Row[], column = "resident_id") =>
   Array.from(new Set(rows.map(row => String(row[column])).filter(Boolean)));
 
-/** Tim yang boleh dilihat: PUSAT semua; RESCUE organisasinya; DESA yang bermarkas di desanya. */
+/** Tim yang boleh dilihat: PUSAT semua; Desa dan Rescue tim dari organisasi yang melayani wilayah mereka. */
 async function visibleTeams(ctx: Ctx): Promise<Row[]> {
   const teams = await ctx.store.list("rescue_teams", {});
   if (ctx.session.role === "PUSAT") return teams;
   const ids = scopeIds(ctx.session) ?? [];
-  return teams.filter(team =>
-    (ctx.session.role === "RESCUE" && ctx.session.organizationId && String(team.organization_id) === ctx.session.organizationId)
-    || (team.home_village_id && ids.includes(String(team.home_village_id))));
+  const areas = ids.length ? await ctx.store.list("organization_service_areas", { in: { village_id: ids } }) : [];
+  const serving = new Set(areas.map(row => String(row.organization_id)));
+  return teams.filter(team => serving.has(String(team.organization_id)));
 }
 
 export async function overview(ctx: Ctx) {
@@ -62,6 +63,10 @@ export async function overview(ctx: Ctx) {
   const lowBattery = deployed.filter(row => Number(row.battery ?? 100) <= 20);
   const unassignedDevices = devices.filter(row => !assignments.some(item => String(item.device_id) === String(row.id)));
 
+  // Khusus Pusat: kendala teknis terbuka dan persediaan kalung (gudang Pusat vs yang sudah didistribusikan).
+  const tickets = ctx.session.role === "PUSAT" ? await ctx.store.list("support_tickets", {}) : [];
+  const provinceNames = new Set(villages.map(row => String(row.province ?? "")).filter(Boolean));
+
   const byStatus = new Map<string, number>();
   for (const incident of activeIncidents) {
     const key = String(incident.status);
@@ -81,7 +86,7 @@ export async function overview(ctx: Ctx) {
       vulnerableResidents: residents.filter(row => vulnerableResidents.has(String(row.id))).length,
       residentsWithDevice: new Set(assignments.map(row => String(row.resident_id))).size,
       activeIncidents: activeIncidents.length,
-      criticalIncidents: activeIncidents.filter(row => String(row.severity) === "EVAKUASI").length,
+      criticalIncidents: activeIncidents.filter(row => String(row.severity) === "AWAS").length,
       teamsAvailable: teams.filter(row => row.status === "AVAILABLE" && row.active !== false).length,
       teamsTotal: teams.length,
       teamsBusy: teams.filter(row => ["ASSIGNED", "EN_ROUTE", "ON_SCENE"].includes(String(row.status))).length,
@@ -94,8 +99,15 @@ export async function overview(ctx: Ctx) {
       hazardZones: zones.filter(row => !row.active_until || String(row.active_until) > new Date().toISOString()).length,
       shelters: shelters.length,
       shelterCapacity: shelters.reduce((sum, row) => sum + Number(row.capacity ?? 0), 0),
-      villages: villages.length
+      villages: villages.length,
+      provinces: provinceNames.size,
+      ticketsOpen: tickets.filter(row => row.status === "OPEN").length,
+      ticketsInProgress: tickets.filter(row => row.status === "IN_PROGRESS").length,
+      devicesRegistered: devices.length,
+      devicesWarehouse: devices.filter(row => !row.village_id).length,
+      devicesInVillageStock: devices.filter(row => row.village_id && row.status === "STOCK").length
     },
+    outcomes: await outcomes(ctx.store, incidents),
     incidentStatus: Array.from(byStatus.entries()).map(([status, count]) => ({ status, label: statusLabel(status), count })),
     attention: {
       oldestOpenIncidents: oldest,
@@ -137,6 +149,8 @@ export async function mapData(ctx: Ctx) {
     villages: villages.map(row => ({
       id: row.id,
       name: row.name,
+      province: row.province ?? null,
+      regency: row.regency ?? null,
       latitude: row.latitude ?? null,
       longitude: row.longitude ?? null,
       accessNotes: row.access_notes ?? null,
@@ -168,7 +182,9 @@ export async function mapData(ctx: Ctx) {
       online: isOnline(row),
       status: row.status,
       ownerName: ctx.session.role === "RESCUE" ? null : row.owner_name,
-      lastSeenAt: row.last_seen_at
+      lastSeenAt: row.last_seen_at,
+      locationAt: row.location_at ?? null,
+      locationAccuracyMeters: row.location_accuracy_m ?? null
     })),
     incidents: incidents.filter(row => !CLOSED.has(String(row.status))).map(row => ({
       id: row.id,

@@ -8,7 +8,8 @@
   <title>Masuk — JAGA</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet"></noscript>
   <link rel="stylesheet" href="auth.css" />
 </head>
 <body>
@@ -49,10 +50,6 @@
         <p id="loginError" class="form-error" role="alert"></p>
         <button class="submit" type="submit">Masuk</button>
 
-        <div class="demo" id="demoBox" hidden>
-          <span>Mode demo: pilih akun contoh, kolom di atas terisi otomatis</span>
-          <div class="demo-list" id="demoList"></div>
-        </div>
         <p class="help">Lupa kata sandi atau belum punya akun? Hubungi Admin JAGA Pusat.</p>
       </form>
     </section>

@@ -1,13 +1,15 @@
 import { config } from "../config.js";
 import {
   authenticate, clearSessionCookie, hashPassword,
-  requireRole, revokeInternalToken, SESSION_COOKIE, sessionCookie, tokenFromRequest, usingEphemeralSessionSecret
+  requireRole, revokeInternalToken, revokeSupabaseToken, SESSION_COOKIE, sessionCookie, tokenFromRequest, usingEphemeralSessionSecret
 } from "../auth.js";
 import { record } from "../audit.js";
 import { checkRateLimit, resetRateLimit, badRequest, clean, conflict, forbidden, notFound, nowIso, oneOf, optionalText, sha256Hex, text, uuid } from "../lib.js";
 import { param, type Ctx } from "../router.js";
 import type { JagaRole, Row, Session } from "../types.js";
 
+/** Akun yang dihapus tetapi masih direferensikan riwayat (audit) disamarkan ke domain ini dan disembunyikan dari daftar. */
+const DELETED_DOMAIN = "@dihapus.jaga.invalid";
 const ROLES: JagaRole[] = ["PUSAT", "DESA", "RESCUE"];
 const ORG_TYPES = ["BPBD", "BASARNAS", "DAMKAR", "POLISI", "TNI", "RELAWAN", "LAYANAN_KESEHATAN", "LAINNYA"] as const;
 
@@ -40,7 +42,7 @@ export async function logout(ctx: Ctx) {
     summary: `Logout ${ctx.session.displayName}`
   });
   const presented = tokenFromRequest(ctx.req);
-  if (presented) revokeInternalToken(presented);
+  if (presented) { revokeInternalToken(presented); if (ctx.store.kind === "supabase") await revokeSupabaseToken(presented); }
   ctx.res.setHeader("set-cookie", clearSessionCookie());
   return { message: "Sesi ditutup" };
 }
@@ -76,6 +78,7 @@ export async function sessionInfo(ctx: Ctx) {
 /* ---------------------------------------------------------- Akun Whitt */
 
 const accountSummary = (row: Row, supabase = false) => ({
+  id: row.profile_id ?? row.id ?? null,
   email: row.email,
   displayName: row.display_name,
   title: row.title ?? null,
@@ -111,6 +114,7 @@ export async function listAccounts(ctx: Ctx) {
         const membership = byProfile.get(String(profile.id));
         const organizationId = membership?.organization_id ? String(membership.organization_id) : null;
         return {
+          id: profile.id,
           email: profile.email ?? "",
           displayName: profile.display_name,
           title: profile.title ?? null,
@@ -123,6 +127,7 @@ export async function listAccounts(ctx: Ctx) {
           authSource: "supabase"
         };
       })
+      .filter(row => !String(row.email).endsWith(DELETED_DOMAIN))
       .filter(row => scope === null || (row.role === "DESA" && inScope(row.villageIds)));
   }
   const rows = await ctx.store.list("internal_accounts", {});
@@ -310,6 +315,7 @@ export async function updateAccount(ctx: Ctx) {
   if (patch.role !== undefined) internalPatch.role = patch.role;
   if (patch.email !== undefined) internalPatch.email = patch.email;
   if (patch.display_name !== undefined) internalPatch.display_name = patch.display_name;
+  if (patch.title !== undefined) internalPatch.title = patch.title;
   if (patch.active !== undefined) internalPatch.active = patch.active;
   if (Object.keys(internalPatch).length) await syncInternalScope(ctx, id, internalPatch);
 
@@ -342,3 +348,58 @@ export async function updateAccount(ctx: Ctx) {
 }
 
 
+
+const adminHeaders = () => ({
+  apikey: config.supabaseSecretKey, Authorization: "Bearer " + config.supabaseSecretKey, "Content-Type": "application/json"
+});
+
+async function deleteSupabaseUser(userId: string): Promise<void> {
+  const response = await fetch(config.supabaseUrl + "/auth/v1/admin/users/" + userId, { method: "DELETE", headers: adminHeaders() });
+  if (!response.ok && response.status !== 404) throw badRequest("Gagal menghapus user di Supabase Auth: " + response.status);
+}
+
+/** Dipakai bila profil masih dirujuk riwayat: user tidak dihapus, tetapi dilarang masuk dan emailnya disamarkan. */
+async function disableSupabaseUser(userId: string, email: string): Promise<void> {
+  const response = await fetch(config.supabaseUrl + "/auth/v1/admin/users/" + userId, {
+    method: "PUT", headers: adminHeaders(), body: JSON.stringify({ email, ban_duration: "876000h" })
+  });
+  if (!response.ok && response.status !== 404) throw badRequest("Gagal menonaktifkan user di Supabase Auth: " + response.status);
+}
+
+/**
+ * Hapus akun (hanya JAGA Pusat). Login dicabut seketika. Profil dihapus bila tidak ada riwayat yang merujuknya;
+ * bila ada (audit, penugasan), profil disamarkan dan dinonaktifkan agar riwayat tetap utuh.
+ */
+export async function deleteAccount(ctx: Ctx) {
+  requireRole(ctx.session, ["PUSAT"], "Hanya JAGA Pusat yang dapat menghapus akun");
+  const id = param(ctx, "id");
+  if (id === ctx.session.profileId) throw forbidden("Anda tidak dapat menghapus akun yang sedang dipakai");
+  const existing = await ctx.store.one("profiles", { eq: { id } });
+  if (!existing) throw notFound("Akun tidak ditemukan");
+  if (String(existing.role) === "PUSAT") {
+    const pusat = (await ctx.store.list("profiles", { eq: { role: "PUSAT", active: true } })).filter(row => !String(row.email).endsWith(DELETED_DOMAIN));
+    if (pusat.length <= 1) throw conflict("Akun JAGA Pusat terakhir tidak dapat dihapus");
+  }
+
+  if (ctx.store.kind !== "supabase") await ctx.store.removeWhere("internal_accounts", { eq: { profile_id: id } });
+  await ctx.store.removeWhere("organization_members", { eq: { profile_id: id } });
+
+  // Hapus profil bila tidak ada riwayat yang merujuknya; bila ada (audit, penugasan), profil disamarkan agar riwayat utuh.
+  let mode: "dihapus" | "disamarkan" = "dihapus";
+  const anonymous = "akun-" + id.slice(0, 8) + DELETED_DOMAIN;
+  try {
+    await ctx.store.remove("profiles", id);
+  } catch {
+    mode = "disamarkan";
+    await ctx.store.update("profiles", id, { email: anonymous, display_name: "Akun dihapus", title: null, active: false, updated_at: nowIso() });
+  }
+  if (ctx.store.kind === "supabase") {
+    if (mode === "dihapus") await deleteSupabaseUser(id);
+    else await disableSupabaseUser(id, anonymous);
+  }
+  await record(ctx.store, {
+    actorId: ctx.session.profileId, action: "ACCOUNT_DELETE", entityType: "profiles",
+    entityId: id, summary: "Menghapus akun " + (existing.email ?? existing.display_name) + " (" + existing.role + ")"
+  });
+  return { id, deleted: true, mode };
+}

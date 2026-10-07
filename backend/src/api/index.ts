@@ -7,6 +7,9 @@ import * as residents from "./residents-api.js";
 import * as incidents from "./incidents-api.js";
 import * as teams from "./teams-api.js";
 import * as devices from "./devices-api.js";
+import * as tickets from "./tickets-api.js";
+import * as platform from "./platform-api.js";
+import * as gatewayApi from "./gateway-api.js";
 import * as alerts from "./alerts-api.js";
 import * as rulesets from "./rulesets-api.js";
 import * as dashboard from "./dashboard-api.js";
@@ -27,6 +30,8 @@ export function buildRouter(): Router {
 
   router.get("/api/config", async ctx => ({
     storage: ctx.store.kind,
+    inariskWmsUrl: config.inariskWmsUrl || null,
+    inariskWmsLayers: config.inariskWmsLayers || null,
     demoData: ctx.store.kind === "memory" || process.env.JAGA_DATA_IS_DUMMY === "true",
     // Akun contoh hanya ditawarkan pada mode memori non-produksi (data dummy publik).
     demoAccounts: ctx.store.kind === "memory" && config.env !== "production"
@@ -51,13 +56,17 @@ export function buildRouter(): Router {
   router.get("/api/accounts", auth.listAccounts, { roles: ["PUSAT", "DESA"] });
   router.post("/api/accounts", auth.createAccount, { roles: CENTRAL, status: 201 });
   router.patch("/api/accounts/:id", auth.updateAccount, { roles: CENTRAL });
+  router.delete("/api/accounts/:id", auth.deleteAccount, { roles: ["PUSAT"] });
 
   /* ----------------------------------------------------------- Referensi */
   router.get("/api/villages", residents.listVillages);
-  router.get("/api/hamlets", residents.listHamlets);
+  router.patch("/api/villages/:id", residents.updateVillage, { roles: ["PUSAT"] });
   router.get("/api/vulnerability-types", residents.listVulnerabilityTypes);
   router.get("/api/hazard-zones", residents.listHazardZones);
   router.get("/api/shelters", residents.listShelters);
+  router.post("/api/shelters", residents.createShelter, { roles: ["PUSAT", "DESA"], status: 201 });
+  router.patch("/api/shelters/:id", residents.updateShelter, { roles: ["PUSAT", "DESA"] });
+  router.delete("/api/shelters/:id", residents.deleteShelter, { roles: ["PUSAT", "DESA"] });
 
   /* ------------------------------------------------------------- Warga */
   router.get("/api/residents", residents.listResidents);
@@ -82,7 +91,7 @@ export function buildRouter(): Router {
   router.post("/api/incidents/:id/routes", incidents.saveRoute, { status: 201 });
   router.get("/api/incidents/:id/attachments", incidents.listAttachments);
   router.get("/api/incidents/:id/audit", incidents.listIncidentAudit);
-  router.post("/api/incidents/:id/assignments", teams.assignTeam, { roles: ["PUSAT", "RESCUE"], status: 201 });
+  router.post("/api/incidents/:id/assignments", teams.assignTeam, { roles: ["PUSAT", "RESCUE", "DESA"], status: 201 });
   router.delete("/api/incidents/:id/assignments/:assignmentId", teams.unassignTeam, { roles: ["PUSAT", "RESCUE"] });
 
   router.post("/api/sos", incidents.createSosPublic, { status: 201 });
@@ -103,12 +112,28 @@ export function buildRouter(): Router {
 
   /* ---------------------------------------------------------- Perangkat */
   router.get("/api/devices", devices.listDevices, { roles: ["PUSAT", "DESA"] });
-  router.post("/api/devices", devices.createDevice, { roles: ["PUSAT", "DESA"], status: 201 });
+  router.post("/api/devices", devices.createDevice, { roles: ["PUSAT"], status: 201 });
+  router.post("/api/devices/:id/distribute", devices.distributeDevice, { roles: ["PUSAT"] });
   router.patch("/api/devices/:id", devices.updateDevice, { roles: ["PUSAT", "DESA"] });
   router.post("/api/devices/:id/assign", devices.assignDevice, { roles: ["PUSAT", "DESA"], status: 201 });
   router.post("/api/devices/:id/unassign", devices.unassignDevice, { roles: ["PUSAT", "DESA"] });
   router.get("/api/devices/:id/telemetry", devices.deviceTelemetry, { roles: ["PUSAT", "DESA"] });
   router.post("/api/devices/:id/key", devices.rotateDeviceKey, { roles: ["PUSAT", "DESA"] });
+  router.get("/api/gateway/outbox", gatewayApi.gatewayOutbox, { public: true });
+  router.post("/api/gateway/ingest", gatewayApi.gatewayIngest, { public: true });
+  router.get("/api/platform", platform.getPlatform, { roles: ["PUSAT"] });
+  router.put("/api/platform", platform.savePlatform, { roles: ["PUSAT"] });
+  router.get("/api/governance", platform.governance, { roles: ["PUSAT"] });
+  router.get("/api/village-status", platform.villageStatus, { roles: ["PUSAT"] });
+  router.get("/api/announcements", platform.listAnnouncements);
+  router.post("/api/announcements", platform.createAnnouncement, { roles: ["PUSAT"], status: 201 });
+  router.delete("/api/announcements/:id", platform.deleteAnnouncement, { roles: ["PUSAT"] });
+  router.post("/api/operations/:id/reports", platform.createReport, { roles: ["RESCUE"], status: 201 });
+  router.get("/api/operation-reports", platform.listReports);
+  router.get("/api/operations/:id/coverage", platform.operationCoverage);
+  router.get("/api/tickets", tickets.listTickets);
+  router.post("/api/tickets", tickets.createTicket, { roles: ["DESA", "RESCUE"], status: 201 });
+  router.patch("/api/tickets/:id", tickets.updateTicket, { roles: ["PUSAT"] });
   router.get("/api/gateways", devices.listGateways);
   router.post("/api/gateways", devices.createGateway, { roles: CENTRAL, status: 201 });
   router.post("/api/gateways/:id/key", devices.rotateGatewayKey, { roles: CENTRAL });
@@ -125,13 +150,16 @@ export function buildRouter(): Router {
   router.get("/api/operations/:id", operations.getOperation);
   router.get("/api/operations/:id/roster", operations.getRoster);
   router.get("/api/operations/:id/offline-pack", operations.offlinePack);
+  router.get("/api/operations/:id/route", operations.operationRoute);
   router.patch("/api/operations/:id", operations.updateOperation, { roles: ["PUSAT", "DESA"] });
   router.post("/api/operations/:id/close", operations.closeOperation, { roles: ["PUSAT", "DESA"] });
 
   /* -------------------------------------------------------------- Alert */
   router.get("/api/alerts", alerts.listAlerts);
   router.get("/api/alerts/:id", alerts.getAlert);
-  router.post("/api/alerts", alerts.createAlert, { roles: ["PUSAT", "DESA"], status: 201 });
+  router.post("/api/alerts", alerts.createAlert, { roles: ["DESA"], status: 201 });
+  router.post("/api/alerts/emergency", alerts.emergencyAlert, { roles: ["DESA"], status: 201 });
+  router.get("/api/status-board", alerts.statusBoard, { roles: ["PUSAT", "DESA"] });
   router.post("/api/alerts/receipts/:receiptId", alerts.acknowledgeAlert);
   router.post("/api/alerts/expire", alerts.expireAlerts, { roles: CENTRAL });
   router.get("/api/notifications", alerts.listNotifications);
@@ -147,6 +175,7 @@ export function buildRouter(): Router {
   router.patch("/api/rulesets/:id", rulesets.updateRuleSet, { roles: CENTRAL });
   router.put("/api/rulesets/:id/rules", rulesets.saveRules, { roles: CENTRAL });
   router.post("/api/rulesets/:id/publish", rulesets.publishRuleSet, { roles: CENTRAL });
+  router.post("/api/rulesets/:id/revise", rulesets.reviseRuleSet, { roles: CENTRAL, status: 201 });
   router.post("/api/rulesets/:id/simulate", rulesets.simulateRuleSet);
   router.get("/api/thresholds", rulesets.listThresholds);
   router.post("/api/thresholds", rulesets.upsertThreshold, { roles: CENTRAL, status: 201 });

@@ -12,7 +12,7 @@ memperbarui tabel "Riwayat audit" serta status di bagian 10.
 | 3 | 3 Okt 2026 | Seed, data pilot (Aceh Utara), prioritas penyelamatan | 6 masalah pada seed/mesin, semua diperbaiki (bagian 12) |
 | 4 | 5 Okt 2026 | Masuk (login), halaman depan, serah-terima tim kalung | Login terbukti berfungsi di browser; penyebab hampir pasti akun/kata sandi (bagian 14, 15) |
 
-Verifikasi terkini: `npm run check` bersih, `npm run smoke` **117/117 lulus** (mode memori). Perubahan Supabase dan
+Verifikasi terkini: `npm run check` bersih, `npm run smoke` **174/174 lulus** (mode memori). Perubahan Supabase dan
 Android belum diuji di lingkungan nyata.
 
 Legenda label: **[TERBUKTI]** diuji dinamis; **[KODE]** terbaca dari kode/skema, belum diuji.
@@ -494,3 +494,71 @@ Pengujian: alur landing → kartu peran → login → dashboard untuk tiga role 
 - Catatan keamanan: `.env` berisi kunci rahasia Supabase dan akun MQTT; tidak boleh dibagikan atau di-commit. Bila pernah terkirim, ganti kunci di dashboard Supabase.
 - Temuan terbuka yang memengaruhi tim kalung: pengiriman alarm masih polling `inbox` (L4); antrean keluar untuk gateway belum ada; pola alarm per tingkat baru usulan.
 
+## 16. GPS, notifikasi SOS, dan sinyal darurat satu tombol (5 Okt 2026)
+
+Dipicu catatan tim kalung: kalung mengirim koordinat GPS dan SOS, dan dari web harus ada satu tombol sinyal darurat agar kalung bunyi atau getar.
+
+| Temuan | Perbaikan |
+|---|---|
+| Telemetri hanya menyimpan lat/lng; tanpa fix, akurasi, waktu posisi, riwayat | Migrasi `202610050001_gps_dan_sinyal.sql`; `gpsFix`, `accuracyMeters`, `satellites`; posisi hanya diperbarui bila fix; riwayat posisi di `device_telemetry` |
+| SOS kalung hanya SSE; tidak ada catatan tersimpan dan kalung tidak tahu statusnya | Notifikasi IN_APP `SOS` tersimpan (tanpa nama warga); `activeSos` dan `nextPollSeconds` pada inbox; posisi SOS memperbarui posisi kalung |
+| Tidak ada tombol darurat satu langkah | `POST /api/alerts/emergency` (Pusat/Desa): EVAKUASI ke seluruh kalung desa, buka operasi, tercatat audit; perintah membawa `media` SUARA/GETAR/CAHAYA |
+| Peta Rescue memakai lokasi rumah walau warga sedang di tempat lain | Roster memakai posisi GPS segar (≤15 menit), selain itu rumah; field `positionSource`, `positionAt`, `positionAccuracyMeters`; zona bahaya dihitung dari posisi efektif |
+| Frontend | Kartu dan modal konfirmasi "Sinyal darurat" di Beranda Desa, banner dan bunyi bip saat SOS baru, kolom posisi GPS di halaman Kalung |
+
+Belum: validasi migrasi di Supabase nyata, antrean keluar khusus gateway (LoRa), uji dengan modul GPS asli. Status data yang masih kosong ada di `docs/JAGA.md` bagian "Status data".
+
+
+Tambahan (5 Okt 2026): JAGA Desa/Pusat dapat menambah, mengubah, dan menghapus titik evakuasi (`/api/shelters`, menu Titik evakuasi; tercatat audit). Seed memakai dusun Tanah Merah (dusun lain placeholder), titik kumpul usulan meunasah, lapangan, dan sekolah cadangan.
+
+Tambahan (5 Okt 2026, rute dan detail SOS): `GET /api/operations/:id/route?residentId=&teamId=` (Rescue/Desa/Pusat, tercatat audit) memberi estimasi dan tautan navigasi; antarmuka Rescue punya tombol Rute pada kartu prioritas dan tabel operasi (jalan dari OSRM publik bila terjangkau, selain itu garis estimasi; sisa jarak di luar jalan terpetakan ditandai). Panel Detail SOS (waktu, koordinat, status kalung, log aktivitas, tombol "Tandai sudah ditangani") mengikuti kebutuhan tim kalung. Temuan: titik koordinat dummy warga berjarak 1,4 sampai 2 km dari jalan yang terpetakan di OSM; rute baru bermakna bila koordinat rumah asli diisi. Posisi tim dummy dipindah dekat jalan. Koordinat desa Wikidata (4.827, 97.416) sudah dicek ulang dan benar; hasil pencarian "Leubok" di Copernicus (5.12, 97.15) adalah desa lain dekat Lhokseumawe.
+
+## 17. Konsep dusun dihapus (5 Okt 2026)
+
+Fokus produk adalah desa, sedangkan nama role sudah "JAGA Desa". Dihapus: tabel dan kolom dusun (migrasi `202610060001_hapus_dusun.sql`), endpoint `/api/hamlets`, `hamletIds`/target `DUSUN` pada alarm, area operasi per dusun, kolom dan pilihan dusun di antarmuka, serta data seed dusun (titik acuan koordinat dummy tidak lagi disebut dusun). Alarm dan operasi selalu berlaku untuk seluruh desa. Tes baru memastikan `/api/hamlets` tidak ada dan target `DUSUN` ditolak. Perbaikan lain: header `Referrer-Policy` aset web diubah ke `strict-origin-when-cross-origin` karena server ubin OpenStreetMap menolak permintaan tanpa Referer (penyebab peta kosong tanpa jalan).
+
+## 18. Pusat, banyak desa, kendala teknis, inventaris kalung (5 Okt 2026)
+
+| Temuan | Perbaikan |
+|---|---|
+| Pusat hanya "ringkasan nasional" dengan isi tingkat desa (kalung offline, insiden) | Ringkasan JAGA Pusat: cakupan provinsi dan desa, persediaan kalung, kendala teknis, operasi (informasi). Pusat tidak lagi menampung penanganan Siaga/insiden |
+| Pilot hanya satu desa | Tiga desa (Leubok Pusaka, Seureuke, Buket Linteung) dengan akun Desa masing-masing; isolasi antar desa diuji |
+| Monitoring desa tanpa filter, peta di bawah | Peta di atas, filter provinsi (juga memfilter peta); data warga dikelompokkan per desa dengan filter provinsi dan desa |
+| Tidak ada jalur kendala teknis dari Desa/Rescue ke Pusat | Tabel `support_tickets`, `/api/tickets`, halaman Kendala teknis (Pusat menangani, Desa/Rescue melapor), notifikasi waktu nyata |
+| Desa dapat mendaftarkan kalung | Hanya Pusat yang mendaftarkan (gudang tanpa desa dan koordinat) dan mendistribusikan (`/api/devices/:id/distribute`); Desa memasangkan pada warga |
+| Aturan prioritas tidak dapat diedit | Revisi lewat draf (`/api/rulesets/:id/revise`): ubah poin, penjelasan, ambang; aktifkan dengan catatan persetujuan. Validasi aturan kembar diperbaiki (satu faktor boleh punya beberapa ambang) |
+| Tidak ada hapus akun | `DELETE /api/accounts/:id` (Pusat; bukan diri sendiri, bukan Pusat terakhir); login dan sesi dicabut seketika; profil disamarkan bila masih dirujuk riwayat |
+| Rescue hanya instansi | Relawan desa dapat menjadi Rescue (organisasi jenis relawan); contoh "Tim Siaga Gampong Leubok Pusaka" |
+| Koordinat Leubok Pusaka dari Wikidata meleset sekitar 6 km (area hutan) | Diganti koordinat OpenStreetMap (7 sampai 17 m dari jalan terpetakan); rute dan peta kini bermakna |
+
+Migrasi `202610070001_pusat_kendala_kalung.sql` (tabel kendala, koordinat kalung boleh kosong). Belum: pengelola tingkat provinsi (lihat catatan cakupan di `docs/JAGA.md`).
+
+## 19. Uji menyeluruh sebelum serah-terima ke tim kalung (6 Okt 2026)
+
+Dijalankan dengan skrip di `scripts/uji/`: `keamanan.mjs` (matriks otorisasi 102 rute x 5 identitas = 480 panggilan, isolasi antar desa, fuzz masukan, API perangkat, sesi), `peran.mjs` (78 pemeriksaan di browser untuk Desa, Rescue, Pusat, termasuk tampilan 500 px), dan `supabase.mjs` (49 pemeriksaan khusus Supabase). Hasil akhir: keamanan 0 temuan, browser 78/78, Supabase 49/49, smoke 174/174.
+
+| # | Temuan | Tingkat | Perbaikan |
+|---|---|---|---|
+| 1 | Akun nonaktif di mode Supabase masih bisa masuk dan sesinya tetap berlaku | Tinggi | Login dan pemeriksaan token Supabase menolak `profiles.active=false` |
+| 2 | Filter PostgREST dengan nilai berspasi (mis. nama aturan) tidak pernah cocok karena nilai diberi tanda kutip | Tinggi | Tanda kutip hanya dipakai di dalam daftar `in.(...)`; operator `eq`, `neq`, `gt`, `ilike` mengirim nilai apa adanya |
+| 3 | SOS dari kalung gagal di Supabase (502): profil `device:ID` ditulis ke kolom uuid; audit log kalung juga gagal tersimpan | Tinggi | `actorOf()` hanya meneruskan UUID profil nyata; dipakai untuk semua kolom `*_by` |
+| 4 | Penghapusan akun gagal di Supabase (Auth menolak karena profil dirujuk audit) | Sedang | Urutan baru: hapus profil bila tidak dirujuk, selain itu profil disamarkan dan user Auth dilarang masuk (`ban_duration`) |
+| 5 | Seed Supabase gagal menulis `devices` (kunci objek tidak seragam) sehingga warga tanpa kalung, roster kosong | Tinggi | Baris seragam sebelum sisipan massal; urutan dan filter hapus (`--reset`) diperbaiki per tabel |
+| 6 | Sinyal darurat dapat terpicu oleh panggilan berisi kosong | Sedang | Wajib `confirm: true`; Pusat tidak lagi dapat membunyikan alarm (hanya Desa) |
+| 7 | Email terdaftar dapat ditebak dari waktu respons login (mode memori) | Rendah | Verifikasi kata sandi tiruan untuk email tak dikenal |
+| 8 | Logout tidak mencabut token Supabase | Sedang | `POST /auth/v1/logout` ke Supabase saat keluar |
+| 9 | Galat konsol Leaflet saat berpindah halaman cepat (peta sudah dilepas) | Rendah | Pewaktu `invalidateSize` diperiksa; `map.stop()` sebelum `remove()` |
+| 10 | Kontras teks abu dan lencana oranye di bawah 4,5:1 | Rendah | Warna diperkuat (5,3:1 dan 5,7:1) |
+| 11 | Kalung data contoh tampil offline setelah 15 menit di Supabase (tanpa detak) | Rendah | `JAGA_DEMO_HEARTBEAT=true` (hanya demo; jangan aktif bersama kalung asli) |
+
+Diperiksa dan bersih: tidak ada rahasia di riwayat git atau berkas terlacak, `.env` diabaikan git, `npm audit` 0 kerentanan, header keamanan, cookie HttpOnly dan SameSite=Strict, tanpa CORS lintas-asal, SSE membutuhkan sesi, tanda tangan sesi dan peran tidak dapat dipalsukan, pembatasan percobaan login, jalur berkas sensitif (`/.env`, `/.git`, traversal) tidak tersaji, HTML pada kendala teknis ditampilkan sebagai teks, RLS aktif pada semua tabel dan REST Supabase tanpa kunci menolak data warga, view memakai `security_invoker`.
+
+Belum dapat diperiksa dari sini: Security Advisor Supabase (konektor tidak punya izin ke proyek ini; periksa manual di dashboard), HSTS (butuh HTTPS di hosting), masa berlaku token Supabase (1 jam secara bawaan; sesi berakhir lalu diarahkan ke login), MQTT (backend belum membaca MQTT; lihat `docs/JAGA.md`, Integrasi Kalung).
+
+# 20. Penyesuaian SRS JAGA v2.0
+
+Perubahan: istilah tingkat BMKG/BNPB (Normal, Waspada, Siaga, Awas; enum `EVAKUASI` menjadi `AWAS`), status `NOT_FOUND` dan `UNREACHABLE`, tombol kalung terkunci sampai Desa membunyikan alarm (server menjawab 409 bila belum ada alarm), JAGA Sense (sensor, ambang per desa, rekomendasi tingkat), gateway desa (`/api/gateway/outbox`, `/api/gateway/ingest` dengan `recordedAt`), papan status warga, pengumuman, pengaturan platform dan kebijakan data Rescue, laporan pasca-operasi, jejak tim, antrean offline di peramban, unduh peta offline.
+
+Hasil uji: smoke 232/232, browser 116/116 (dua kali berturut-turut). Uji Supabase untuk fitur baru belum dijalankan; menunggu migrasi `202610080001` dan `202610080002` diterapkan, seed ulang, lalu `scripts/uji/supabase.mjs`.
+
+Catatan keamanan: pengerahan tim oleh Desa dan alarm hanya oleh role Desa; Pusat tidak dapat membunyikan alarm; data medis, kontak, dan GPS bagi Rescue hanya selama operasi aktif, mengikuti kebijakan Pusat, dan tercatat di audit. Sensor dan gateway memakai kunci hash terpisah (`snk_`, `gtw_`) dan gateway terbatas pada desanya.

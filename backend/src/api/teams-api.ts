@@ -1,4 +1,4 @@
-import { record } from "../audit.js";
+import { actorOf, record } from "../audit.js";
 import { assertVillageAccess, requireRole, scopeIds } from "../auth.js";
 import { accessProfile, estimateRoute, isValidPoint, riskBand } from "../geo.js";
 import { badRequest, clean, conflict, forbidden, indexBy, notFound, nowIso, oneOf, optionalText, text } from "../lib.js";
@@ -16,14 +16,20 @@ const assertTeamControl = (ctx: Ctx, team: Row) => {
   }
 };
 
-/** Membaca detail/jejak tim: PUSAT semua, RESCUE organisasinya, DESA tim yang bermarkas di desanya. */
-const assertTeamView = (ctx: Ctx, team: Row) => {
-  if (ctx.session.role === "DESA") {
-    const ids = scopeIds(ctx.session) ?? [];
-    if (!team.home_village_id || !ids.includes(String(team.home_village_id))) throw forbidden("Tim ini berada di luar wilayah Anda");
-    return;
-  }
-  assertTeamControl(ctx, team);
+/** Organisasi yang melayani setidaknya satu dari desa-desa ini (wilayah layanan). */
+const organizationsServing = async (ctx: Ctx, villageIds: string[]): Promise<Set<string>> => {
+  if (!villageIds.length) return new Set();
+  const areas = await ctx.store.list("organization_service_areas", { in: { village_id: villageIds } });
+  return new Set(areas.map(row => String(row.organization_id)));
+};
+
+/** Membaca detail/jejak tim: PUSAT semua; RESCUE dan DESA tim organisasi yang melayani wilayahnya (koordinasi antar tim). */
+const assertTeamView = async (ctx: Ctx, team: Row) => {
+  if (ctx.session.role === "PUSAT") return;
+  const ids = scopeIds(ctx.session) ?? [];
+  if (ctx.session.role === "RESCUE" && ctx.session.organizationId && String(team.organization_id) === ctx.session.organizationId) return;
+  if ((await organizationsServing(ctx, ids)).has(String(team.organization_id))) return;
+  throw forbidden("Tim ini berada di luar wilayah Anda");
 };
 
 const teamShape = (team: Row) => ({
@@ -44,11 +50,9 @@ const teamShape = (team: Row) => ({
 export async function listTeams(ctx: Ctx) {
   const rows = await ctx.store.list("rescue_teams", { order: { name: "asc" } });
   const ids = scopeIds(ctx.session);
-  const scoped = ids === null ? rows : rows.filter(team => {
-    const home = team.home_village_id ? String(team.home_village_id) : null;
-    const village = team.village_id ? String(team.village_id) : null;
-    return !home && !village ? ctx.session.role === "PUSAT" : ids.includes(home ?? village ?? "");
-  });
+  // Desa dan Rescue melihat tim dari organisasi yang melayani wilayah mereka (SRS FR-3.7: koordinasi antar tim).
+  const serving = ids === null ? null : await organizationsServing(ctx, ids);
+  const scoped = serving === null ? rows : rows.filter(team => serving.has(String(team.organization_id)));
   const memberRows = scoped.length ? await ctx.store.list("rescue_team_members", { in: { team_id: scoped.map(team => String(team.id)) } }) : [];
   const memberCounts = new Map<string, number>();
   for (const row of memberRows) {
@@ -61,7 +65,7 @@ export async function listTeams(ctx: Ctx) {
 export async function getTeam(ctx: Ctx) {
   const team = await ctx.store.one("rescue_teams", { eq: { id: param(ctx, "id") } });
   if (!team) throw notFound("Tim tidak ditemukan");
-  assertTeamView(ctx, team);
+  await assertTeamView(ctx, team);
   const [members, assignments, history] = await Promise.all([
     ctx.store.list("rescue_team_members", { eq: { team_id: param(ctx, "id") } }),
     ctx.store.list("incident_assignments", { eq: { team_id: param(ctx, "id") } }),
@@ -224,7 +228,7 @@ export async function teamTrail(ctx: Ctx) {
 export async function teamEta(ctx: Ctx) {
   const team = await ctx.store.one("rescue_teams", { eq: { id: param(ctx, "id") } });
   if (!team) throw notFound("Tim tidak ditemukan");
-  assertTeamView(ctx, team);
+  await assertTeamView(ctx, team);
   const incidentId = clean(ctx.query.get("incidentId"));
   if (!incidentId) throw badRequest("Parameter query incidentId wajib diisi");
   const incident = await ctx.store.one("incidents", { eq: { id: incidentId } });
@@ -259,7 +263,7 @@ export async function teamEta(ctx: Ctx) {
 /* ------------------------------------------------------------ Penugasan */
 
 export async function assignTeam(ctx: Ctx) {
-  requireRole(ctx.session, ["PUSAT", "RESCUE"]);
+  requireRole(ctx.session, ["PUSAT", "RESCUE", "DESA"]);
   const incident = await ctx.store.one("incidents", { eq: { id: param(ctx, "id") } });
   if (!incident) throw notFound("Insiden tidak ditemukan");
   assertVillageAccess(ctx.session, incident.village_id);
@@ -268,7 +272,10 @@ export async function assignTeam(ctx: Ctx) {
   }
   const team = await ctx.store.one("rescue_teams", { eq: { id: clean(ctx.body.teamId) } });
   if (!team) throw badRequest("Tim tidak ditemukan; kirim teamId pada body");
-  assertTeamControl(ctx, team);
+  if (ctx.session.role === "DESA") {
+    // SRS FR-2.7: Desa mengerahkan tim Rescue yang melayani desanya langsung dari dasbor.
+    if (!(await organizationsServing(ctx, [String(incident.village_id)])).has(String(team.organization_id))) throw forbidden("Tim ini tidak melayani desa Anda");
+  } else assertTeamControl(ctx, team);
   if (team.active === false) throw badRequest("Tim sedang tidak aktif");
   const already = await ctx.store.one("incident_assignments", { eq: { incident_id: param(ctx, "id"), team_id: String(team.id) }, isNull: { completed_at: true } });
   if (already) throw conflict(`Tim ${team.name} sudah ditugaskan pada insiden ini`);
@@ -280,7 +287,7 @@ export async function assignTeam(ctx: Ctx) {
   const assignment = await ctx.store.insert("incident_assignments", {
     incident_id: param(ctx, "id"),
     team_id: String(team.id),
-    assigned_by: ctx.session.profileId,
+    assigned_by: actorOf(ctx.session),
     assigned_at: nowIso()
   });
   if (String(team.status) === "AVAILABLE" || String(team.status) === "OFF_DUTY") {
@@ -290,7 +297,7 @@ export async function assignTeam(ctx: Ctx) {
     await ctx.store.update("incidents", param(ctx, "id"), { status: "ASSIGNED", updated_at: nowIso() });
     await ctx.store.insert("incident_status_history", {
       incident_id: param(ctx, "id"), from_status: incident.status, to_status: "ASSIGNED",
-      changed_by: ctx.session.profileId, notes: `Ditugaskan ke ${team.name}`, created_at: nowIso()
+      changed_by: actorOf(ctx.session), notes: ctx.session.role === "DESA" ? `Dikerahkan JAGA Desa ke ${team.name}${ctx.body.note ? `: ${String(ctx.body.note).slice(0, 200)}` : ""}` : `Ditugaskan ke ${team.name}`, created_at: nowIso()
     });
   }
   await record(ctx.store, {

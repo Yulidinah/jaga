@@ -4,10 +4,10 @@ export type JagaRole = "PUSAT" | "DESA" | "RESCUE";
 
 export type IncidentStatus =
   | "NEW" | "ACKNOWLEDGED" | "ASSIGNED" | "EN_ROUTE"
-  | "ARRIVED" | "EVACUATED" | "SAFE" | "CANCELLED" | "CLOSED";
+  | "ARRIVED" | "EVACUATED" | "NOT_FOUND" | "UNREACHABLE" | "SAFE" | "CANCELLED" | "CLOSED";
 
-export type Severity = "WASPADA" | "SIAGA" | "EVAKUASI";
-export type AlertTargetType = "DESA" | "DUSUN" | "KELOMPOK_RENTAN" | "PERANGKAT" | "ZONA";
+export type Severity = "WASPADA" | "SIAGA" | "AWAS";
+export type AlertTargetType = "DESA" | "KELOMPOK_RENTAN" | "PERANGKAT" | "ZONA";
 export type CommandStatus = "QUEUED" | "SENT" | "ACKNOWLEDGED" | "FAILED" | "EXPIRED";
 export type RecommendationLevel = "PANTAU" | "SEGERA_TINJAU" | "RESPONS_CEPAT" | "DARURAT";
 export type RuleSetStatus = "DRAFT" | "ACTIVE" | "ARCHIVED";
@@ -22,7 +22,7 @@ export type OrganizationType =
 export type IncidentType = "BANYANG" | "BANJIR" | "LONGSOR" | "GEMPA" | "ERUPSI" | "KEBAKARAN" | "ANJIRAN_UDARA" | "LAINNYA";
 
 export const ACTIVE_INCIDENT_STATUSES: IncidentStatus[] = [
-  "NEW", "ACKNOWLEDGED", "ASSIGNED", "EN_ROUTE", "ARRIVED", "EVACUATED"
+  "NEW", "ACKNOWLEDGED", "ASSIGNED", "EN_ROUTE", "ARRIVED", "EVACUATED", "NOT_FOUND", "UNREACHABLE"
 ];
 export const CLOSED_INCIDENT_STATUSES: IncidentStatus[] = ["SAFE", "CANCELLED", "CLOSED"];
 

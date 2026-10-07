@@ -10,7 +10,8 @@
   <title>JAGA — Peringatan yang dipahami. Bantuan yang sampai.</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet"></noscript>
   <link rel="stylesheet" href="landing.css" />
 </head>
 <body>
@@ -51,7 +52,7 @@
 
         <!-- Cuplikan tampilan Rescue (ilustrasi statis) -->
         <aside class="mock" aria-label="Contoh tampilan prioritas untuk tim penyelamat">
-          <div class="mock-head"><span class="chip live"><i></i>Operasi berjalan</span><small>Contoh data dummy</small></div>
+          <div class="mock-head"><span class="chip live"><i></i>Operasi berjalan</span></div>
           <div class="mock-item red"><b>1</b><div><strong>Warga lansia, pasca-stroke</strong><small>Tinggal sendiri · tidak bisa mengungsi sendiri</small></div><span>Merah</span></div>
           <div class="mock-item red"><b>2</b><div><strong>Ibu hamil, persalinan dekat</strong><small>Butuh kendaraan dan bidan</small></div><span>Merah</span></div>
           <div class="mock-item orange"><b>3</b><div><strong>Pengguna kursi roda</strong><small>Ada pendamping · rumah di zona bahaya</small></div><span>Oranye</span></div>
@@ -77,7 +78,7 @@
             <ul>
               <li>Mendata warga rentan dan menilai kemampuan evakuasinya</li>
               <li>Memantau baterai dan koneksi kalung</li>
-              <li>Membunyikan alarm per dusun dan mencatat tinggi air</li>
+              <li>Membunyikan alarm desa dan mencatat tinggi air</li>
               <li>Membuka dan menutup operasi bersama Rescue</li>
             </ul>
             <a class="btn primary block" href="/login?role=desa">Masuk sebagai JAGA Desa</a>
@@ -125,8 +126,8 @@
           <h2>Dari tanda bahaya sampai warga selamat</h2>
         </div>
         <ol class="steps">
-          <li><span class="num">1</span><h3>Desa menilai kondisi</h3><p>Tanpa sensor, petugas desa yang paling tahu: sungai naik, titik rendah dusun sudah tergenang. Mereka mencatat tinggi air dan memilih dusun terdampak.</p></li>
-          <li><span class="num">2</span><h3>Alarm dibunyikan</h3><p>Kalung warga di area terpilih menyala, berbunyi, dan bergetar. Alarm tingkat Siaga atau Evakuasi otomatis membuka operasi.</p></li>
+          <li><span class="num">1</span><h3>Desa menilai kondisi</h3><p>Petugas desa yang paling tahu kondisi lapangan: sungai naik, titik rendah desa sudah tergenang. Mereka mencatat tinggi air lalu membunyikan alarm untuk seluruh desa.</p></li>
+          <li><span class="num">2</span><h3>Alarm dibunyikan</h3><p>Kalung warga di area terpilih menyala, berbunyi, dan bergetar. Alarm tingkat Siaga atau Awas otomatis membuka operasi.</p></li>
           <li><span class="num">3</span><h3>Rescue melihat prioritas</h3><p>Tim penyelamat menerima daftar warga berkalung di area itu, diurutkan menurut ancaman dan kemampuan mengungsi, lengkap dengan alasannya.</p></li>
           <li><span class="num">4</span><h3>Operasi ditutup</h3><p>Setelah selesai, Desa menutup operasi dan akses data warga untuk Rescue langsung dicabut. Semua pembukaan data tercatat.</p></li>
         </ol>
@@ -162,7 +163,6 @@
           <div class="pill"><h3>Semua tercatat</h3><p>Pembukaan data oleh Rescue dan perubahan penting tercatat di log audit yang dapat ditinjau JAGA Pusat.</p></div>
           <div class="pill"><h3>Keputusan di tangan manusia</h3><p>JAGA adalah sistem pendukung keputusan. Alarm dikonfirmasi petugas, dan keputusan taktis tetap pada komandan lapangan.</p></div>
         </div>
-        <p class="demo-note"><b>Versi percobaan:</b> seluruh data warga, kalung, dan tim di aplikasi ini adalah data dummy. Hanya nama wilayah (Gampong Leubok Pusaka, Kec. Langkahan, Aceh Utara) yang bersumber dari data publik.</p>
       </div>
     </section>
 

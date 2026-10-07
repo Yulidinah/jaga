@@ -10,11 +10,17 @@ const encodeValue = (value: unknown): string => {
   return String(value);
 };
 
-const postgrestValue = (value: unknown): string => {
-  if (Array.isArray(value)) return `(${value.map(item => `"${String(item).replace(/"/g, '\\"')}"`).join(",")})`;
+/** Nilai di dalam daftar `in.(...)` / `or=(...)`: wajib diberi tanda kutip bila memuat karakter pemisah. */
+const postgrestListValue = (value: unknown): string => {
   const text = encodeValue(value);
   return /[(),\s"'\\:]/.test(text) ? `"${text.replace(/"/g, '\\"')}"` : text;
 };
+
+/**
+ * Nilai tunggal (eq, neq, gt, ilike, ...). PostgREST TIDAK membuang tanda kutip pada operator ini,
+ * jadi nilai berspasi atau bertitik dua harus dikirim apa adanya (di-URL-encode saja).
+ */
+const postgrestValue = (value: unknown): string => encodeValue(value);
 
 /** Nilai filter di-encode agar karakter seperti & # + % tidak menyisipkan parameter baru. */
 const enc = (value: string): string =>
@@ -34,7 +40,7 @@ export function toQueryString(query: Query = {}): string {
   }
   for (const [column, values] of Object.entries(query.in ?? {})) {
     // Daftar kosong berarti tidak ada baris yang cocok (sama seperti penyimpanan memori).
-    push(column, `in.(${values.map(postgrestValue).join(",")})`);
+    push(column, `in.(${values.map(postgrestListValue).join(",")})`);
   }
   for (const [column, value] of Object.entries(query.gt ?? {})) push(column, `gt.${postgrestValue(value)}`);
   for (const [column, value] of Object.entries(query.gte ?? {})) push(column, `gte.${postgrestValue(value)}`);
@@ -46,7 +52,7 @@ export function toQueryString(query: Query = {}): string {
   for (const [column, value] of Object.entries(query.like ?? {})) push(column, `ilike.${postgrestValue(value)}`);
   const alternatives = (query.anyOf ?? []).filter(item => item.values.length);
   if (alternatives.length) {
-    parts.push(`or=${enc(`(${alternatives.map(item => `${item.column}.in.(${item.values.map(postgrestValue).join(",")})`).join(",")})`)}`);
+    parts.push(`or=${enc(`(${alternatives.map(item => `${item.column}.in.(${item.values.map(postgrestListValue).join(",")})`).join(",")})`)}`);
   }
 
   const order = Object.entries(query.order ?? {});

@@ -254,8 +254,8 @@ warga—misalnya pola cahaya atau getaran—ketika SOS sudah terkirim dan diteri
 
 Prinsip: Rescue hanya melihat data pribadi warga **saat ada operasi**, dan hanya untuk **pemakai kalung** di **area terdampak**.
 
-1. JAGA Desa menilai kondisi lapangan (tanpa sensor: pengetahuan Keuchik/pemuda desa, mis. "air sungai naik, titik rendah dusun X sudah 1 meter").
-2. Desa memilih dusun terdampak dan membunyikan alarm Siaga/Evakuasi (boleh mengisi tinggi air dan catatan pengamatan).
+1. JAGA Desa menilai kondisi lapangan melalui pengamatan Keuchik dan pemuda desa, misalnya "air sungai naik, titik rendah desa sudah 1 meter").
+2. Desa membunyikan alarm Siaga/Awas (boleh mengisi tinggi air dan catatan pengamatan).
 3. Sistem otomatis membuka **operasi**; JAGA Rescue di wilayah itu menerima pemberitahuan dan roster pemakai kalung di area tersebut,
    termasuk paket offline untuk dibawa ke lapangan.
 4. Desa dapat memperluas area atau memperbarui tinggi air selama operasi; alarm berikutnya meningkatkan operasi yang sama.
@@ -267,34 +267,49 @@ Komandan Rescue tetap menentukan tim dan urutan evakuasi; sistem hanya menyediak
 
 # Tampilan per Role
 
-**Navbar atas** (semua role) memuat logo, penanda "JAGA Pusat / Desa / Rescue" beserta wilayahnya, status koneksi, notifikasi, dan menu akun.
-Menu halaman semua role (Pusat, Desa, Rescue) berada di **sidebar kiri**; navbar atas hanya memuat identitas, status, notifikasi, dan akun. Mode tab
-di bawah navbar masih tersedia sebagai opsi (`nav: 'tabs'` per role di `ROLES`, `frontend/app.js`). Di layar sempit sidebar menjadi baris menu yang dapat digeser. Palet warna diturunkan dari logo (hijau, latar krem).
+Menu halaman semua role (Pusat, Desa, Rescue) berada di **sidebar kiri hijau tua** (logo dan menu saja). Baris atas konten memuat **chip peran**
+("JAGA Pusat / Desa / Rescue"), status koneksi, notifikasi, dan avatar; nama pengguna, email, dan tombol keluar ada di menu avatar. Wilayah atau organisasi tampil kecil di
+atas judul halaman. Di layar sempit sidebar menjadi baris menu yang dapat digeser. Mode tab masih tersedia (`nav: 'tabs'` per role di `ROLES`, `frontend/app.js`).
 
 | Role | Menu | Isi |
 |---|---|---|
-| **JAGA Pusat** | Ringkasan | KPI nasional, operasi aktif, hal yang perlu perhatian, aktivitas terbaru |
-| | Monitoring desa | Tabel per desa (warga, kalung online, baterai rendah, sinyal terakhir, operasi) dan peta wilayah |
-| | Data warga | Pandangan baca saja seluruh wilayah, dengan cari dan filter kelompok |
-| | Aturan prioritas | Rule set aktif, ambang warna, daftar aturan beserta poin dan penjelasan |
-| | Akun & akses | Daftar akun dan pembuatan akun Desa/Rescue/Pusat (memilih desa dari daftar) |
+| **JAGA Pusat** | Ringkasan | Cakupan provinsi dan desa, persediaan kalung, kendala teknis menunggu, operasi aktif (informasi), riwayat operasi |
+| | Monitoring desa | Peta wilayah di atas, filter provinsi, lalu tabel per desa (warga, kalung online, baterai rendah, sinyal terakhir, operasi, nama kepala desa + tombol "Kontak" yang dikelola Pusat) |
+| | Data warga | Pandangan baca saja, dikelompokkan per desa dengan filter provinsi dan desa |
+| | Kalung | Inventaris: daftarkan kalung ke gudang Pusat, distribusikan ke desa atau tarik kembali |
+| | Kendala teknis | Laporan dari Desa dan Rescue yang hanya dapat diselesaikan Pusat; mulai tangani dan selesaikan dengan catatan |
+| | Pengumuman | Kirim pembaruan ke seluruh desa atau ke desa tertentu; prioritas "Penting" tampil sebagai banner |
+| | Aturan prioritas | Aturan aktif dapat direvisi: buka editor lewat "Edit aturan", ubah poin, penjelasan, dan ambang warna, lalu "Simpan draf" atau "Aktifkan" dengan catatan; draf tampil sebagai pratinjau baca-saja sebelum diaktifkan |
+| | Akun & akses | Daftar akun, buat akun, dan hapus akun (kecuali akun sendiri dan Pusat terakhir) |
+| | Platform & data | Status basis data dan penyimpanan, mode demo, tautan dokumentasi |
 | | Laporan | Riwayat operasi dan kejadian, unduh CSV |
 | | Log audit | Tindakan penting termasuk akses data warga oleh Rescue |
 | **JAGA Desa** | Beranda | Operasi berjalan (ubah tinggi air, tutup), KPI, peta desa, hal yang perlu ditindaklanjuti, status warga |
 | | Warga | Daftar, cari, filter kelompok, tambah warga (termasuk kemampuan evakuasi dan medis mendesak) |
-| | Alarm & operasi | Pilih tingkat, area dusun, tinggi air dan catatan, pesan; konfirmasi manusia; riwayat alarm |
-| | Kalung | Baterai, koneksi, terakhir aktif |
+| | Alarm & operasi | Pilih tingkat, tinggi air dan catatan, pesan; konfirmasi manusia; riwayat alarm |
+| | Kalung | Baterai, koneksi, posisi GPS, terakhir aktif; kalung baru atau pengganti diminta ke Pusat |
 | | Kejadian | SOS dan aksi status (konfirmasi, aman, tutup) |
+| | Titik evakuasi | Tambah, ubah, hapus titik kumpul desa |
+| | Kendala teknis | Lapor ke Pusat (kalung, gateway, akun, data, aplikasi) dan lihat tanggapannya |
 | | Peta | Peta desa dengan zona bahaya dan titik kumpul |
 | **JAGA Rescue** | Prioritas | Peta berpin warna prioritas dan daftar urutan penyelamatan beserta alasannya |
 | | Operasi | Roster pemakai kalung per operasi, unduh paket offline |
 | | Tugas lapangan | Aksi status penanganan (terima, berangkat, tiba, evakuasi, aman) |
 | | Tim | Status dan posisi tim; ubah status tim organisasi sendiri |
+| | Kendala teknis | Lapor ke Pusat dan lihat tanggapannya |
 | | Peta | Peta operasi |
 
 **Halaman depan (`/`)** bersifat publik untuk semua pengguna: penjelasan singkat, kartu tiga peran (Desa, Rescue, Pusat) yang masing-masing menuju
 `/login?role=...`, alur kerja, penjelasan prioritas warna, dan catatan privasi. Pengunjung yang sudah masuk melihat tombol "Buka dashboard". Alur URL:
 `/` (landing) → `/login` → `/app` (dashboard sesuai peran). Pada mode demo, halaman masuk mengisi akun contoh sesuai peran yang dipilih.
+
+## Pembagian tugas Pusat, Desa, dan Rescue
+
+- **Siaga, Waspada, dan penanganan insiden** sepenuhnya di **JAGA Desa dan JAGA Rescue**. Hanya JAGA Desa yang membunyikan alarm (termasuk tombol sinyal darurat, yang wajib `confirm: true`). Pusat hanya menerima informasinya (operasi aktif, riwayat) untuk dipantau; Pusat tidak menangani insiden yang belum ditangani.
+- **JAGA Pusat** menangani hal yang tidak bisa diselesaikan di tingkat desa: ketersediaan dan distribusi **kalung**, gateway, **akun**, data wilayah, **aturan prioritas**, **pengumuman** (ke seluruh desa atau ke desa tertentu), dan **kontak kepala desa** (nama + nomor yang dipakai untuk menghubungi desa). Desa dan Rescue melaporkannya lewat menu **Kendala teknis**.
+- **Alur kalung:** Pusat mendaftarkan kalung ke gudang, mendistribusikannya ke desa, Desa memasangkannya pada warga. Desa tidak mendaftarkan kalung sendiri; kalung yang terpasang pada warga tidak dapat dipindahkan sebelum dilepas.
+- **Siapa itu JAGA Rescue:** organisasi penanggap apa pun (BPBD, Damkar, Basarnas, Polisi, TNI, layanan kesehatan, **relawan**). Relawan desa (mis. Tim Siaga Gampong, Tagana, linmas, pemuda desa) juga berperan sebagai Rescue: dibuatkan akun Rescue berjenis relawan dengan wilayah desanya. Data pilot memuat contoh "Tim Siaga Gampong Leubok Pusaka" (`rescue.siagadesa@jaga.id`).
+- **Cakupan Pusat:** satu peran JAGA Pusat dengan hierarki wilayah (provinsi, kabupaten, kecamatan, desa). Saat ini Pusat melihat seluruh provinsi dan dapat memfilter per provinsi. Model data sudah mendukung pembagian lebih lanjut (wilayah layanan per organisasi), sehingga pengelola tingkat provinsi dapat ditambahkan nanti sebagai akun Pusat dengan wilayah terbatas tanpa mengubah struktur.
 
 Peta memakai OpenStreetMap lewat Leaflet (tercantum di `frontend/vendor/leaflet`); membutuhkan internet untuk ubin peta, sedangkan pin
 dan zona tetap tergambar tanpa ubin. Aset logo olahan (simbol transparan, versi putih, ikon PWA) ada di `frontend/assets`; berkas asli
@@ -372,29 +387,31 @@ Sosial, bidan/tenaga kesehatan, dan organisasi penyandang disabilitas setempat. 
 
 ---
 
-# Lokasi Pilot: Gampong Leubok Pusaka, Kec. Langkahan, Kab. Aceh Utara
+# Lokasi Pilot: tiga gampong di Kec. Langkahan, Kab. Aceh Utara
+
+Gampong Leubok Pusaka (utama), Gampong Seureuke, dan Gampong Buket Linteung. Koordinat titik tengah dari OpenStreetMap. Dua desa tetangga masing-masing berisi 3 warga contoh (disabilitas, lansia, ibu hamil), kalung, satu titik kumpul, dan satu zona bahaya.
 
 Pilot memakai satu desa. Seluruh warga, kalung, tim, insiden, dan aturan skor adalah **dummy**;
 yang nyata hanya data wilayah publik.
 
 ## Alasan memilih Leubok Pusaka
 
-1. **Terdampak banjir Sumatra 26 November 2025.** Kompas melaporkan Dusun Tanah Merah di desa ini sebagai lokasi terparah banjir di
+1. **Terdampak banjir Sumatra 26 November 2025.** Kompas melaporkan kawasan Tanah Merah di desa ini sebagai lokasi terparah banjir di
    Aceh Utara: air sekitar 5 meter dan sekitar 200 KK terdampak.
-2. **Dampak terjadi di tingkat dusun.** Itu sesuai dengan desain sistem: JAGA Desa memilih dusun terdampak, lalu Rescue menerima
-   roster pemakai kalung di dusun itu saja.
-3. **Data wilayah resmi tersedia.** Kode wilayah 11.08.18.2021 (Kemendagri), kode pos 24394, Mukim Rampah, titik tengah 4°49'37"N
-   97°24'58"E (Wikidata). Titik tengah dipakai sebagai pusat sebaran koordinat dummy.
-4. **Skala pilot dapat dikecilkan.** Desa dilaporkan besar (sekitar 764 KK, 10 dusun, 2.286 jiwa pada data 2019; belum
-   terverifikasi), sehingga pilot dibatasi pada **3 dusun**: Tanah Merah (nyata) dan dua dusun placeholder.
-5. **Konteks lokal sesuai asumsi sistem.** Tanpa sensor, keputusan bergantung pada pengamatan Keuchik dan pemuda desa: "air sungai
-   naik, titik rendah dusun X sudah 1 meter". Itulah masukan yang dicatat sebagai tinggi air dan area operasi.
+2. **Fokus pada tingkat desa.** Sesuai desain sistem: JAGA Desa membunyikan alarm untuk seluruh desa, lalu Rescue menerima
+   roster pemakai kalung di desa itu saja.
+3. **Data wilayah resmi tersedia.** Kode wilayah 11.08.18.2021 (Kemendagri), kode pos 24394, Mukim Rampah, titik tengah 4.8479, 97.4728
+   (OpenStreetMap, place=village; tepat di jalan terpetakan). Koordinat Wikidata (4.827, 97.416) ternyata meleset sekitar 6 km ke area hutan, jadi tidak dipakai. Titik tengah dipakai sebagai pusat sebaran koordinat dummy.
+4. **Skala pilot dapat dikecilkan.** Desa dilaporkan besar (sekitar 764 KK dan 2.286 jiwa pada data 2019; belum
+   terverifikasi), sehingga pilot dibatasi pada **9 warga berkalung**. Keuchik: Janni (label peran, belum dikonfirmasi).
+5. **Konteks lokal sesuai asumsi sistem.** Keputusan bergantung pada pengamatan Keuchik dan pemuda desa: "air sungai
+   naik, titik rendah desa sudah 1 meter". Itulah masukan yang dicatat sebagai tinggi air operasi.
 
 ## Skala data dummy
 
 Dari angka yang dikumpulkan pemilik proyek, Aceh Utara memiliki sekitar 2.000 penyandang disabilitas. Dibagi rata per gampong
 (sekitar 850; perlu dicek ke BPS) hasilnya sekitar 2 orang per desa. Fokus JAGA juga mencakup lansia dan ibu hamil, jadi seed
-sengaja kecil dan seimbang: **satu desa, 3 dusun, 9 warga berkalung**.
+sengaja kecil dan seimbang: **satu desa, 9 warga berkalung**.
 
 | Kelompok fokus | Jumlah | Warga (fiktif) |
 |---|---|---|
@@ -412,63 +429,146 @@ antar desa; fixture itu bukan bagian data pilot.
 | Nyata (publik) | Dummy / placeholder |
 |---|---|
 | Kode wilayah, nama desa/kecamatan/kabupaten, titik tengah desa | Nama warga, telepon (0812-0000-xxxx), kontak, kerentanan, catatan medis |
-| Nama Dusun Tanah Merah dan laporan dampaknya (Kompas) | Dusun lain ("Dusun Contoh 2/3"), koordinat rumah |
+| Kawasan Tanah Merah dan laporan dampaknya (Kompas) | Koordinat rumah dan titik acuan sebaran |
 | Fakta banjir 26 November 2025 | Zona bahaya (batas perkiraan), titik kumpul usulan, catatan akses |
 | | Kalung, gateway, tim BPBD/Damkar, insiden, alarm, aturan skor (bukan standar resmi) |
 
+## Status data (diperbarui 5 Okt 2026)
+
+| Data | Status | Siapa menyediakan |
+|---|---|---|
+| Wilayah (provinsi sampai desa, titik tengah) | Ada (publik) | selesai |
+| Warga, kontak, kerentanan, kalung, tim, insiden, aturan skor | Ada, **dummy** | diganti data resmi lewat persetujuan Desa |
+| Riwayat posisi GPS kalung dan notifikasi SOS contoh | Ada, dummy | tim kalung mengirim data nyata |
+| Titik kumpul dan kapasitas | Usulan: meunasah, lapangan, sekolah (satu lantai, kondisi kurang baik, hanya cadangan). Kapasitas dummy. **JAGA Desa dapat menambah, mengubah, dan menghapus sendiri** (menu Titik evakuasi) | Desa memverifikasi lapangan |
+| Zona banjir (batas) | **Belum** (perkiraan dummy). Rencana: turunkan dari citra Sentinel-1 (Copernicus Browser) tanggal banjir 26 Nov 2025 vs tanggal normal, bandingkan InaRISK BNPB, dan konfirmasi ke warga. Citra hanya memberi luas genangan, bukan kedalaman | Pemilik proyek mengekspor; BPBD memverifikasi |
+| Proporsi dan sebaran disabilitas, lansia, ibu hamil | **Belum** (asumsi) | Dinas Sosial, Puskesmas/bidan, Keuchik |
+| Bobot prioritas yang disahkan | **Belum** (bobot contoh) | Pusat bersama BPBD, Dinsos, tenaga kesehatan, organisasi disabilitas |
+| Kunci kalung dan gateway produksi | **Belum** | dibuat saat kalung didaftarkan |
+| Data tinggi air | Pengamatan manual Desa | dicatat saat alarm bila tersedia |
+
 ## Keterbatasan dan hal yang perlu diverifikasi
 
-- Jumlah KK, dusun, dan penduduk Leubok Pusaka berasal dari ringkasan pencarian; artikel sumbernya tidak dapat dibuka. Ada sumber yang
+- Jumlah KK dan penduduk Leubok Pusaka berasal dari ringkasan pencarian; artikel sumbernya tidak dapat dibuka. Ada sumber yang
   menyebut desa ini di Kec. Seunuddon, tetapi Wikidata dan kode pos menempatkannya di Langkahan.
-- Status desa pascabanjir (relokasi, dusun yang hilang) belum dicek. Dusun yang dilaporkan hilang (mis. Guci, Riseh) sengaja tidak dipakai.
-- Daftar dan nama dusun sebenarnya harus diambil dari BPS ("Kecamatan Langkahan dalam Angka") atau Keuchik, lalu diganti di `seed.ts`.
+- Status desa pascabanjir (relokasi, kawasan yang hilang) belum dicek.
+- Konsep dusun dihapus dari sistem; fokus pada desa. Migrasi `202610060001_hapus_dusun.sql` menghapus tabel dan kolom dusun.
 - Proporsi disabilitas hanya asumsi. Jangan pernah mengganti data dummy dengan data warga sungguhan tanpa persetujuan dan dasar hukum (UU PDP).
 
 ---
 
+# Kesesuaian dengan SRS JAGA v2.0
+
+Tingkat peringatan memakai istilah BMKG/BNPB: **Normal, Waspada, Siaga, Awas**. Status: **Ada** = sudah berjalan di perangkat lunak; **Konsep** = bagian perangkat keras atau jaringan lapangan yang belum diperagakan oleh prototipe ini.
+
+| Kode SRS | Kebutuhan | Status | Di mana |
+|---|---|---|---|
+| FR-1.1 | Kelola akun Desa/Rescue (buat, ubah, nonaktifkan, hapus) | Ada | Pusat: Akun & akses |
+| FR-1.2 | Dasbor agregat, hasil evakuasi | Ada | Pusat: Ringkasan, Laporan |
+| FR-1.3 | Status desa aktif/tidak dan sinkron terakhir | Ada | Pusat: Ringkasan (status desa), Monitoring desa |
+| FR-1.4 | Ekspor laporan CSV/PDF | Ada | Pusat: Laporan (CSV dan cetak/PDF) |
+| FR-1.5 | Konfigurasi global dan penyebaran versi | Ada | Pusat: Platform & data (pengaturan, versi aplikasi, sebaran firmware) |
+| FR-1.6 | Tata kelola data sensitif (NIK tidak terlihat Desa/Rescue) | Ada | Pusat: Platform & data (matriks akses, persetujuan, akses Rescue); NIK tidak punya antarmuka |
+| FR-1.7 | Pengumuman ke semua Desa | Ada | Pusat: Pengumuman |
+| FR-1.8 | Log audit | Ada | Pusat: Log audit |
+| FR-1.9 | Pusat tidak dapat membunyikan alarm | Ada | `POST /api/alerts` hanya JAGA Desa |
+| FR-2.1 | Login tim desa serentak | Ada | Beberapa akun Desa per desa, sesi independen |
+| FR-2.2 | Registri penerima (tambah, ubah, hapus) | Ada | Desa: Warga (Ubah, Nonaktifkan) |
+| FR-2.3 | Pemicu alarm manual Desa | Ada | Desa: Alarm & operasi |
+| FR-2.4 | Konfirmasi manusia sebelum alarm | Ada | Modal konfirmasi sebelum alarm dikirim |
+| FR-2.5 | Alarm ke satu kalung, kelompok, atau semua | Ada | Desa: Alarm & operasi |
+| FR-2.6 | Papan status per penerima | Ada | Desa: Status warga |
+| FR-2.7 | Kerahkan tim Rescue dari dasbor | Ada | Desa: Status warga dan Kejadian |
+| FR-2.8 | Baterai dan detak terakhir kalung | Ada | Desa: Kalung |
+| FR-2.9 | Indikator offline dan store-and-forward | Ada | Antrean di peramban Desa; gateway mengunggah massal (`/api/gateway/ingest`) |
+| FR-2.10, FR-2.11 | Riwayat kejadian, peta persebaran | Ada | Desa: Kejadian, Peta |
+| FR-3.1, FR-3.2 | Login organisasi, umpan prioritas | Ada | Rescue: Prioritas |
+| FR-3.3 | Peta prioritas dengan zona terisolasi (InaRISK) | Sebagian | Zona bahaya berwarna merah-oranye-kuning; lapisan InaRISK opsional (`INARISK_WMS_URL`) |
+| FR-3.4 | Rute dan navigasi offline | Sebagian | Rute jalan (OSRM) saat online; offline berupa garis lurus dari data tersimpan |
+| FR-3.5 | Pelacakan jalur dan area tersisir | Ada | Rescue: Tim (pelacakan) dan Peta (area tersisir) |
+| FR-3.6 | Status ditemukan/dievakuasi, tidak ditemukan, tidak terjangkau | Ada | Rescue: Tugas lapangan |
+| FR-3.7 | Koordinasi antar tim | Ada | Rescue: Tim dan Peta (semua tim yang melayani desa) |
+| FR-3.8 | Peta offline | Ada | Rescue: Operasi (Unduh peta offline) dan cache otomatis |
+| FR-3.9 | Laporan pasca-operasi | Ada | Rescue: Laporan operasi |
+| FR-4.1 sampai FR-4.7 | Kalung: tidur dalam, alarm tiga media, tombol terkunci, detak, relay mesh, mandiri, ringkas | Sebagian | Perangkat lunak server: tombol terkunci dipaksa server (`409` bila belum ada alarm), `buttonUnlocked` pada inbox, detak dan baterai. Relay mesh dan daya adalah firmware (konsep) |
+
+## Yang ditambahkan di luar SRS (dan alasannya)
+
+- **Lansia dan ibu hamil** sebagai kelompok rentan, selain penyandang disabilitas.
+- **Prioritas penyelamatan berskor** dengan alasan dan bobot yang dapat direvisi (menjawab "siapa lebih dulu").
+- **GPS di kalung.** Dikirim saat detak dan saat meminta bantuan; Rescue memakainya hanya selama operasi aktif, dan Pusat tidak melihat GPS individu. Kebijakan dapat dimatikan di Platform & data.
+- **Akses Rescue berbasis operasi.** Data pemakai kalung terbuka hanya selama operasi aktif di desanya dan tercatat di audit. Rescue juga melihat catatan medis, kebutuhan evakuasi, dan kontak darurat agar tahu cara memperlakukan warga; ini pengecualian terkendali terhadap NFR-3 dan dapat dikurangi lewat kebijakan Pusat.
+- **Kendala teknis** (Desa/Rescue ke Pusat), **inventaris dan distribusi kalung** dari Pusat, rute Rescue ke warga, tombol sinyal darurat satu langkah (tetap dikonfirmasi Desa).
+
 # Integrasi Kalung (untuk tim perangkat)
 
-Bagian ini cukup bagi tim kalung (JAGA Rumah) dan gateway; tidak perlu membaca kode backend. Contoh siap pakai: `firmware/api-examples.http`.
+Bagian ini cukup bagi tim kalung (JAGA Alarm/JAGA Rumah), JAGA Sense, dan gateway; tidak perlu membaca kode backend. Contoh siap pakai: `firmware/api-examples.http`.
 
 ## Arsitektur
 
 ```
-Kalung JAGA Rumah --LoRa--> Gateway --HTTPS--> Backend JAGA --> Dashboard Desa / Rescue
+JAGA Sense --LoRa--> Gateway desa --HTTPS--> Backend JAGA --> Dashboard Desa / Rescue / Pusat
+Kalung      --LoRa--> Gateway desa --HTTPS--/
 ```
 
-- Kalung dan gateway **tidak pernah** memegang kunci Supabase atau `.env`. Mereka hanya memegang kunci mereka sendiri.
-- Kunci kalung berawalan `jrk_` (satu per kalung), kunci gateway berawalan `gtw_`. Keduanya dibuat saat didaftarkan (JAGA Desa/Pusat mendaftarkan kalung, JAGA Pusat
-  mendaftarkan gateway) dan **hanya ditampilkan sekali**. Rotasi: `POST /api/devices/:id/key` atau `POST /api/gateways/:id/key`. Backend hanya menyimpan hash kunci.
-- Transport LoRa antara kalung dan gateway ditentukan tim perangkat; backend hanya berbicara HTTP(S). Gateway menerjemahkan.
+- Kalung, sensor, dan gateway **tidak pernah** memegang kunci Supabase atau `.env`. Mereka hanya memegang kunci mereka sendiri.
+- Kunci kalung berawalan `jrk_`, sensor `snk_`, gateway `gtw_`. Dibuat saat didaftarkan oleh JAGA Pusat dan **hanya ditampilkan sekali**. Rotasi: `POST /api/devices/:id/key`, `POST /api/sense/:id/key`, `POST /api/gateways/:id/key`. Backend hanya menyimpan hash kunci.
+- Transport LoRa antara perangkat dan gateway ditentukan tim perangkat; backend hanya berbicara HTTPS. **Gateway adalah titik komando desa**: satu gateway per desa menjembatani LoRa dan internet, menyimpan peristiwa saat internet mati, lalu mengunggahnya bersamaan.
+
+## Tombol kalung (SRS FR-4.3)
+
+Tombol kalung **terkunci** dalam keadaan normal dan **terbuka hanya setelah JAGA Desa membunyikan alarm**. Menekannya berarti "meminta bantuan".
+
+```
+IDLE / TERKUNCI --(Desa bunyikan alarm)--> ALARM AKTIF / TOMBOL TERBUKA
+ALARM AKTIF --(tombol ditekan)--> MEMINTA BANTUAN  (insiden dibuat, Desa dan Rescue diberi tahu)
+MEMINTA BANTUAN atau ALARM AKTIF --(Rescue menandai warga aman/dievakuasi, atau operasi ditutup)--> IDLE / TERKUNCI
+```
+
+Server menegakkannya: `POST /api/device/sos` saat belum ada alarm aktif dijawab **409** (`ack: "TERKUNCI"`), jadi firmware tidak boleh mengirim permintaan bantuan sebelum tombol terbuka. Inbox mengabarkan `buttonUnlocked` (true selama ada alarm aktif atau warga masih menunggu bantuan).
 
 ## Autentikasi (header)
 
 | Header | Wajib | Isi |
 |---|---|---|
-| `X-JAGA-Device-Id` | ya | mis. `JAGA-0003` |
-| `X-JAGA-Device-Key` | ya | kunci `jrk_...` kalung |
-| `X-JAGA-Gateway-Key` | tidak | kunci `gtw_...`; disertakan bila lewat gateway |
+| `X-JAGA-Device-Id` / `X-JAGA-Device-Key` | kalung | mis. `JAGA-0003` dan kunci `jrk_...` |
+| `X-JAGA-Sensor-Id` / `X-JAGA-Sensor-Key` | sensor | mis. `SENSE-0001` dan kunci `snk_...` |
+| `X-JAGA-Gateway-Key` | gateway | kunci `gtw_...`; dipakai di `/api/gateway/*`, atau disertakan bersama kunci kalung bila meneruskan |
 
-Kunci hanya diterima lewat header (bukan query string). Kalung berstatus hilang atau dipensiunkan ditolak (403).
+Kunci hanya diterima lewat header (bukan query string). Perangkat hilang atau dipensiunkan ditolak (403).
 
-## Endpoint
+## Endpoint kalung
 
 | Metode dan jalur | Tujuan | Isi penting |
 |---|---|---|
-| `POST /api/device/telemetry` | Detak berkala | `battery` (0-100), `latitude`, `longitude`, `signalStrength`, `temperature`; semua opsional. Balas 202 |
-| `POST /api/device/sos` | Tombol SOS | `latitude`, `longitude`, `description` opsional. Balas 201 dengan `ack: "SOS_DITERIMA"` dan `incidentId`; SOS yang masih terbuka tidak diduplikasi (`duplicate: true`) |
-| `GET /api/device/inbox` | Ambil alarm | `commands[]`: `id`, `receiptId`, `severity`, `message`, `expiresAt`. Mengambil menandai terkirim |
-| `POST /api/device/receipts/:receiptId` | Konfirmasi alarm | `{"status":"ACKNOWLEDGED"}` atau `{"status":"FAILED","reason":"..."}` |
+| `POST /api/device/telemetry` | Detak berkala + posisi GPS | `battery` (0-100), `latitude`, `longitude`, `gpsFix`, `accuracyMeters`, `satellites`, `signalStrength`, `temperature`, `recordedAt` (ISO; untuk unggahan terlambat); semua opsional. Balas 202 |
+| `POST /api/device/sos` | **Tombol ditekan (meminta bantuan)** | `latitude`, `longitude`, `gpsFix`, `accuracyMeters`, `description`. **409 bila tombol masih terkunci.** Balas 201 `ack: "SOS_DITERIMA"`, `incidentId`; permintaan yang masih terbuka tidak diduplikasi (`duplicate: true`) |
+| `GET /api/device/inbox` | Ambil alarm | `commands[]` (`receiptId`, `severity`, `media`, `message`, `expiresAt`), `buttonUnlocked`, `activeSos`, `nextPollSeconds` |
+| `POST /api/device/receipts/:receiptId` | Konfirmasi alarm dijalankan | `{"status":"ACKNOWLEDGED"}` atau `{"status":"FAILED","reason":"..."}` |
 | `GET /api/device/location` | Info perangkat | lokasi tersimpan, baterai, status |
 
-Balasan sukses berbentuk `{"data": ...}`; galat berbentuk `{"error": "..."}` dengan kode 400 (isi salah, body maksimum 64 KB), 401 (kunci salah/tidak ada), 403 (perangkat hilang/dipensiunkan atau receipt milik perangkat lain).
+## Endpoint sensor JAGA Sense
+
+| Metode dan jalur | Tujuan | Isi penting |
+|---|---|---|
+| `POST /api/sense/reading` | Bacaan muka air | `waterLevelCm` (wajib, 0-3000), `rainfallMmH`, `battery`, `recordedAt`. Balas 202 dengan `tier` (NORMAL/WASPADA/SIAGA/AWAS) |
+
+Tingkat dihitung dari ambang per desa (bawaan 50/100/150 cm, diatur JAGA Desa). Hasilnya **rekomendasi**: Desa meninjau lalu memutuskan membunyikan alarm.
+
+## Endpoint gateway desa
+
+| Metode dan jalur | Tujuan | Isi penting |
+|---|---|---|
+| `GET /api/gateway/outbox` | Alarm yang harus diteruskan lewat LoRa | `commands[]` (`severity`, `media`, `message`, `expiresAt`, `targets[]` berisi `deviceId` dan `receiptId`), `unlockedDevices[]` (kalung yang tombolnya harus dibuka), `sense.thresholds` (agar gateway dapat mengklasifikasi saat offline), `nextPollSeconds` |
+| `POST /api/gateway/ingest` | Unggahan massal store-and-forward (maks 200 kejadian) | `{"events":[{"type":"telemetry"\|"assist"\|"receipt"\|"sense", ...}]}`; tiap kejadian boleh memuat `recordedAt`. Balasan memuat hasil per kejadian (diterima atau alasan ditolak). Gateway hanya boleh memegang perangkat dan sensor di desanya |
 
 ## Alur yang harus didukung firmware
 
-1. **Detak:** kirim telemetri berkala. Dashboard menganggap kalung **offline bila tidak ada sinyal lebih dari 15 menit** (`DEVICE_OFFLINE_MINUTES`), jadi interval harus lebih pendek dari itu (usulan 5 menit; baterai vs keandalan perlu dikompromikan).
-2. **SOS:** tekan tombol, kirim `sos`, lalu beri umpan balik yang dapat dipahami warga (cahaya/getaran) saat `SOS_DITERIMA` diterima. Bila gagal terkirim, ulangi hingga berhasil (aman: tidak menduplikasi).
-3. **Alarm:** terima perintah (lewat downlink dari gateway), jalankan pola sesuai `severity`, lalu kirim konfirmasi. Alarm kedaluwarsa pada `expiresAt`.
-4. **Offline:** gateway mengantre dan mengirim ulang saat internet kembali.
+0. **GPS:** koordinat dikirim lewat detak dan permintaan bantuan. Bila belum dapat fix, kirim `gpsFix:false`; backend mempertahankan posisi terakhir dan tidak pernah memakai titik 0,0. Posisi dianggap segar bila diterima dalam 15 menit.
+1. **Detak:** kirim telemetri berkala; kalung dianggap **offline bila tidak ada sinyal lebih dari 15 menit** (batas dapat diubah Pusat), jadi interval harus lebih pendek (usulan 5 menit).
+2. **Alarm:** terima perintah (inbox atau gateway), jalankan sesuai `severity` dan `media`, lalu kirim konfirmasi. **Buka tombol** selama `buttonUnlocked` true. Alarm kedaluwarsa pada `expiresAt`.
+3. **Meminta bantuan:** saat tombol terbuka dan ditekan, kirim `sos` dengan GPS saat itu; beri umpan balik cahaya/getaran saat `SOS_DITERIMA`. Bila gagal terkirim, ulangi (aman: tidak menduplikasi). Status penanganan kembali lewat `activeSos.statusLabel`.
+4. **Offline:** gateway menyimpan kejadian dan mengunggahnya lewat `/api/gateway/ingest` begitu internet kembali, dengan `recordedAt` asli. Alarm baru yang dibunyikan Desa saat internet mati tidak dapat sampai ke server (alarm lewat dasbor butuh internet); jalur alarm lokal oleh gateway adalah bagian firmware (konsep).
 
 ## Pola alarm (USULAN, perlu disepakati dengan tim kalung)
 
@@ -476,15 +576,21 @@ Balasan sukses berbentuk `{"data": ...}`; galat berbentuk `{"error": "..."}` den
 |---|---|---|---|
 | WASPADA | kedip lambat | satu getar pendek | tidak ada atau nada lembut sekali |
 | SIAGA | kedip sedang | getar putus-putus | nada berkala |
-| EVAKUASI | kedip cepat | getar kuat terus-menerus | nada keras terus-menerus |
+| AWAS | kedip cepat | getar kuat terus-menerus | nada keras terus-menerus |
 
-Kombinasi tiga media penting karena penerima mencakup tunarungu (cahaya/getaran), tunanetra (suara), dan lansia. Autisme: hindari sirene keras bila memungkinkan (catatan pada data warga).
+Kombinasi tiga media penting karena penerima mencakup tunarungu (cahaya/getaran), tunanetra (suara), dan lansia. Autisme: hindari sirene keras bila memungkinkan.
 
-## Yang belum ada di backend (perlu dirancang bersama)
+## Yang belum ada (perlu dirancang bersama)
 
-- **Pengiriman alarm ke kalung masih tarik (polling `inbox`)**, padahal kalung dirancang hemat baterai dan aktif hanya saat dipicu lewat LoRa. Rencana: endpoint antrean
-  keluar untuk **gateway** (gateway menarik semua perintah satu desa lalu meneruskan lewat LoRa). Belum dibuat; bentuknya perlu disepakati dengan tim kalung.
-- Transport MQTT dan LoRa; sinkronisasi waktu perangkat; pembaruan firmware (OTA).
+- Transport MQTT dan LoRa, sinkronisasi waktu perangkat, pembaruan firmware (OTA), dan relay mesh antar kalung (FR-4.5). Semuanya firmware/jaringan.
+- Alarm lokal oleh gateway tanpa internet (SRS bagian 3): gateway memerlukan salinan alarm yang disetujui; saat ini alarm selalu lewat server.
+
+## Status MQTT (penting untuk tim kalung)
+
+**Backend saat ini hanya berbicara HTTP(S)**. Variabel `MQTT_URL`, `MQTT_USERNAME`, `MQTT_PASSWORD` di `.env.example` baru disiapkan; **belum ada kode yang berlangganan atau menerbitkan ke broker MQTT**. Pesan yang dikirim kalung ke broker tidak sampai ke aplikasi sampai salah satu terjadi:
+
+1. **Gateway menjembatani** (berfungsi sekarang): gateway atau skrip kecil berlangganan topik MQTT lalu meneruskan ke endpoint di atas, paling efisien lewat `/api/gateway/ingest` dan `/api/gateway/outbox`.
+2. **Jembatan MQTT di backend** (perlu dibangun): backend berlangganan `jaga/{deviceId}/telemetry|sos|receipt` dan menerbitkan alarm ke `jaga/{deviceId}/cmd`, memakai fungsi yang sama dengan endpoint HTTP. Bentuk topik dan muatan harus disepakati dengan tim kalung dulu.
 
 ## Konfigurasi kalung dan gateway (di mana disimpan)
 
@@ -535,5 +641,31 @@ pribadi), dan **kebijakan** (perlu pengesahan, bukan sekadar data). Seed (`backe
 | Rule set dan bobot skor, ambang | `priority_rule_sets`, `priority_rules`, `priority_thresholds` | Kebijakan | Untuk demo cukup dummy; untuk operasi nyata harus disahkan Pusat bersama pakar (acuan: Perka BNPB No. 14/2014 tentang penanganan penyandang disabilitas dalam penanggulangan bencana; cek ulang nomor dan isinya). |
 | Akun | `profiles`, `internal_accounts` | Dummy | Kata sandi demo publik hanya untuk mode memori. |
 
-Rencana yang berlaku: wilayah, nama dusun yang terkonfirmasi, dan titik tengah desa dari data publik; seluruh data orang dan perangkat
+Rencana yang berlaku: wilayah dan titik tengah desa dari data publik; seluruh data orang dan perangkat
 dummy. Lokasi pilot, alasan, dan skala data ada di bagian "Lokasi Pilot" di atas.
+
+---
+
+# Riwayat perubahan
+
+## 6 Okt 2026 — Pengumuman per desa, kepala desa dikelola Pusat, dan perbaikan UI aturan prioritas
+
+**Pengumuman ke desa tertentu** (`#/pengumuman`, Pusat)
+- `POST /api/announcements` menerima `villageIds` (daftar UUID desa tujuan, maks. 200, divalidasi); tanpa `villageIds` pengumuman menjangkau seluruh desa. `PATCH` salah satu kolom: `announcements.village_ids uuid[]` + GIN index.
+- `GET /api/announcements` memfilter sesuai jangkauan: Pusat melihat semua; desa hanya menerima pengumuman yang ditujukan padanya (`scopeIds`).
+- Form memilih "Semua desa" / "Desa tertentu" dengan daftar periksa desa; badge tujuan di riwayat; prioritas "Penting" tampil banner; draf ketikan tidak hilang saat berpindah mode tujuan.
+- Migration baru: `supabase/migrations/202610100001_pengumuman_dan_kepala_desa.sql` (juga menambah kolom kepala desa). **Belum dijalankan di Supabase** sebelum fitur ini aktif.
+
+**Kepala desa milik JAGA Pusat**
+- `listVillages` mengembalikan `headName`/`headPhone`; endpoint baru `PATCH /api/villages/:id` (khusus role Pusat) untuk memperbarui kontak — tercatat di audit (`VILLAGE_HEADS`).
+- `#/desa`: nama kepala desa di bawah nama gampong + tombol "Kontak" membuka modal lihat/ubah.
+
+**Perbaikan halaman Aturan prioritas (`#/aturan`)**
+- Draf yang belum diaktifkan tampil sebagai kartu pratinjau baca-saja dengan tombol "Edit aturan"; editor ditutup otomatis setelah "Simpan draf" atau "Aktifkan". (Sebelumnya flag penutup dijalankan setelah re-render sehingga editor tidak pernah menutup sendiri.)
+- Pemicuan ganda dicegah dengan **busy state global**: tombol aksi dan tombol submit dinonaktifkan dengan spinner selama permintaan berjalan (`setBusy`/`clearBusy`, CSS `.btn.is-busy`).
+- Menghapus panggilan `refresh()` yang tidak terdefinisi pada "Revisi aturan" (potensi galat tak terlihat di konsol).
+
+**Lain-lain**
+- Pill navbar Pusat tidak lagi menampilkan hitungan "X/Y kalung" tersambung, cukup "Terhubung".
+- `seed.ts` disesuaikan: kontak kepala desa (nama + nomor), satu pengumuman contoh yang ditujukan ke desa tetangga, dan pembersihan kolom `flood_*` yang sudah dihapus dari database agar reseed tidak gagal.
+- Verifikasi: `npm run check`, `npm run build`, `npm run smoke` (215 lulus), dan uji endpoint fitur baru (kontak kades, pengumuman bertarget, cakupan desa) 11/11 lulus.

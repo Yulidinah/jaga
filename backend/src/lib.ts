@@ -108,6 +108,13 @@ export const isOnline = (row: Row | null | undefined, now = Date.now()): boolean
   return Number.isFinite(seen) && now - seen <= config.deviceOfflineMinutes * 60_000;
 };
 
+/** Posisi GPS dianggap segar bila diterima dalam batas waktu yang sama dengan status online. */
+export const isLocationFresh = (row: Row | null | undefined, now = Date.now()): boolean => {
+  if (!row || row.location_at === null || row.location_at === undefined) return false;
+  const at = new Date(String(row.location_at)).getTime();
+  return Number.isFinite(at) && now - at <= config.deviceOfflineMinutes * 60_000;
+};
+
 export const clean = (value: unknown): string => String(value ?? "").trim();
 
 export function text(value: unknown, field: string, opts: { min?: number; max?: number } = {}): string {

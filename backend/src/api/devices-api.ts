@@ -1,11 +1,12 @@
-import { record } from "../audit.js";
+import { actorOf, notify, record } from "../audit.js";
 import { assertVillageAccess, newDeviceKey, newGatewayKey, requireRole } from "../auth.js";
 import { isOnline, badRequest, clean, conflict, indexBy, notFound, nowIso, oneOf, optionalText, randomToken, requireUuid, sha256Hex, text } from "../lib.js";
 import { publish } from "../realtime.js";
 import { param, type Ctx } from "../router.js";
 import type { DeviceStatus, Row } from "../types.js";
 import { eqFilter, parsePaging, scopedQuery } from "./common.js";
-import { createSos } from "./incidents-api.js";
+import { activeAlarmFor } from "./alerts-api.js";
+import { createSos, statusLabel } from "./incidents-api.js";
 import { refreshCommandStatus } from "./alerts-api.js";
 
 const DEVICE_STATUSES: DeviceStatus[] = ["STOCK", "ASSIGNED", "MAINTENANCE", "LOST", "RETIRED"];
@@ -23,6 +24,34 @@ const optionalNumber = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+interface Gps { latitude: number | null; longitude: number | null; fix: boolean; accuracy: number | null; satellites: number | null }
+
+/**
+ * Membaca data GPS dari kalung. Posisi hanya dipakai bila ada koordinat valid dan kalung tidak melaporkan gpsFix=false
+ * (belum mendapat fix); posisi lama tetap dipertahankan agar peta tidak melompat ke titik 0,0 atau titik yang salah.
+ */
+const readGps = (body: Row): Gps => {
+  const latitude = coordinate(body.latitude, 90);
+  const longitude = coordinate(body.longitude, 180);
+  const hasPoint = latitude !== null && longitude !== null;
+  const flag = body.gpsFix === undefined || body.gpsFix === null || body.gpsFix === ""
+    ? true : ["1", "true", "yes", "on"].includes(String(body.gpsFix).toLowerCase());
+  const accuracy = optionalNumber(body.accuracyMeters);
+  const satellites = optionalNumber(body.satellites);
+  return {
+    latitude: hasPoint ? latitude : null,
+    longitude: hasPoint ? longitude : null,
+    fix: hasPoint && flag,
+    accuracy: accuracy !== null && accuracy >= 0 && accuracy <= 100_000 ? Math.round(accuracy * 10) / 10 : null,
+    satellites: satellites !== null && satellites >= 0 && satellites <= 64 ? Math.round(satellites) : null
+  };
+};
+const gpsPatch = (gps: Gps): Row => gps.fix
+  ? { latitude: gps.latitude, longitude: gps.longitude, location_at: nowIso(), location_accuracy_m: gps.accuracy } : {};
+
+/** Media peringatan untuk kalung; firmware mengabaikan media yang tidak dimilikinya. */
+export const mediaFor = (severity: string): string[] => (severity === "WASPADA" ? ["GETAR", "CAHAYA"] : ["SUARA", "GETAR", "CAHAYA"]);
+
 const deviceShape = (device: Row) => ({
   id: device.id,
   villageId: device.village_id,
@@ -33,6 +62,8 @@ const deviceShape = (device: Row) => ({
   status: device.status,
   latitude: device.latitude,
   longitude: device.longitude,
+  locationAt: device.location_at ?? null,
+  locationAccuracyMeters: device.location_accuracy_m ?? null,
   battery: device.battery,
   online: isOnline(device),
   lastSeenAt: device.last_seen_at,
@@ -73,16 +104,16 @@ export async function listDevices(ctx: Ctx) {
 }
 
 export async function createDevice(ctx: Ctx) {
-  requireRole(ctx.session, ["PUSAT", "DESA"], "Hanya pusat atau desa yang dapat mendaftarkan perangkat");
-  const villageId = requireUuid(ctx.body.villageId, "Desa");
-  assertVillageAccess(ctx.session, villageId);
-  if (!(await ctx.store.one("villages", { eq: { id: villageId } }))) throw badRequest("Desa tidak ditemukan");
+  // Ketersediaan kalung bersumber dari Pusat: Pusat mendaftarkan ke gudang lalu mendistribusikan ke desa.
+  requireRole(ctx.session, ["PUSAT"], "Hanya JAGA Pusat yang dapat mendaftarkan kalung. Desa menerima kalung dari Pusat");
+  const villageRaw = clean(ctx.body.villageId);
+  const villageId = villageRaw ? requireUuid(villageRaw, "Desa") : null;
+  if (villageId && !(await ctx.store.one("villages", { eq: { id: villageId } }))) throw badRequest("Desa tidak ditemukan");
   const deviceId = clean(ctx.body.id) || `JAGA-${randomToken(6).replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase()}`;
   const existing = await ctx.store.one("devices", { eq: { id: deviceId } });
   if (existing) throw conflict("ID perangkat sudah dipakai");
   const latitude = coordinate(ctx.body.latitude, 90);
   const longitude = coordinate(ctx.body.longitude, 180);
-  if (latitude === null || longitude === null) throw badRequest("Latitude dan longitude wajib diisi dan berada dalam rentang valid");
 
   const key = newDeviceKey();
   const device = await ctx.store.insert("devices", {
@@ -104,9 +135,32 @@ export async function createDevice(ctx: Ctx) {
   });
   await record(ctx.store, {
     actorId: ctx.session.profileId, action: "DEVICE_CREATE", entityType: "devices",
-    entityId: deviceId, summary: `Mendaftarkan perangkat ${deviceId}`, after: device
+    entityId: deviceId, summary: `Mendaftarkan perangkat ${deviceId}${villageId ? "" : " ke gudang Pusat"}`, after: device
   });
   return { ...deviceShape(device), deviceKey: key, note: "Kunci hanya ditampilkan sekali. Simpan di perangkat." };
+}
+
+/** Pusat memindahkan kalung dari gudang ke desa, antar desa, atau menariknya kembali ke gudang (villageId kosong). */
+export async function distributeDevice(ctx: Ctx) {
+  requireRole(ctx.session, ["PUSAT"], "Hanya JAGA Pusat yang dapat mendistribusikan kalung");
+  const device = await ctx.store.one("devices", { eq: { id: param(ctx, "id") } });
+  if (!device) throw notFound("Perangkat tidak ditemukan");
+  const active = await ctx.store.one("device_assignments", { eq: { device_id: String(device.id) }, isNull: { unassigned_at: true } });
+  if (active) throw conflict("Kalung masih dipasang pada warga. Lepas dulu sebelum dipindahkan");
+  const villageRaw = clean(ctx.body.villageId);
+  const villageId = villageRaw ? requireUuid(villageRaw, "Desa") : null;
+  const village = villageId ? await ctx.store.one("villages", { eq: { id: villageId } }) : null;
+  if (villageId && !village) throw badRequest("Desa tidak ditemukan");
+  const updated = await ctx.store.update("devices", String(device.id), {
+    village_id: villageId, status: "STOCK", online: false, updated_at: nowIso()
+  });
+  await record(ctx.store, {
+    actorId: ctx.session.profileId, action: "DEVICE_DISTRIBUTE", entityType: "devices", entityId: String(device.id),
+    summary: villageId ? `Kalung ${device.id} didistribusikan ke ${village?.name}` : `Kalung ${device.id} ditarik ke gudang Pusat`,
+    before: device, after: updated
+  });
+  publish("device.updated", { id: device.id, villageId }, villageId ?? device.village_id ?? undefined);
+  return deviceShape(updated ?? device);
 }
 
 export async function updateDevice(ctx: Ctx) {
@@ -147,7 +201,7 @@ export async function assignDevice(ctx: Ctx) {
   const assignment = await ctx.store.insert("device_assignments", {
     device_id: param(ctx, "id"),
     resident_id: residentId,
-    assigned_by: ctx.session.profileId,
+    assigned_by: actorOf(ctx.session),
     assigned_at: nowIso(),
     notes: optionalText(ctx.body.notes, "Catatan", 500)
   });
@@ -262,15 +316,22 @@ export async function ingestTelemetry(ctx: Ctx) {
     throw badRequest("Baterai harus berupa angka");
   }
   const battery = rawBattery === null ? null : Math.round(Math.min(100, Math.max(0, rawBattery)));
-  let latitude = coordinate(ctx.body.latitude, 90);
-  let longitude = coordinate(ctx.body.longitude, 180);
-  if (latitude === null || longitude === null) { latitude = null; longitude = null; }
+  const gps = readGps(ctx.body);
   const gatewayId = ctx.gateway ? String(ctx.gateway.gateway.id) : null;
 
-  const patch: Row = { last_seen_at: nowIso(), online: true, updated_at: nowIso() };
+  // recordedAt: waktu pengukuran di kalung (store-and-forward lewat gateway). Tanpa itu dipakai waktu server.
+  let recordedAt = nowIso();
+  if (ctx.body.recordedAt) {
+    const parsed = new Date(String(ctx.body.recordedAt)).getTime();
+    if (!Number.isFinite(parsed)) throw badRequest("recordedAt bukan waktu yang valid");
+    if (parsed > Date.now() + 5 * 60_000) throw badRequest("recordedAt tidak boleh di masa depan");
+    if (parsed < Date.now() - 7 * 24 * 3_600_000) throw badRequest("recordedAt lebih tua dari 7 hari");
+    recordedAt = new Date(parsed).toISOString();
+  }
+  const recent = Date.now() - new Date(recordedAt).getTime() <= 15 * 60_000;
+  const seenAt = String(device.last_seen_at ?? "") > recordedAt ? String(device.last_seen_at) : recordedAt;
+  const patch: Row = { last_seen_at: seenAt, ...(recent ? { online: true } : {}), updated_at: nowIso(), ...(recent ? gpsPatch(gps) : {}) };
   if (battery !== null) patch.battery = battery;
-  if (latitude !== null) patch.latitude = latitude;
-  if (longitude !== null) patch.longitude = longitude;
   const updated = await ctx.store.update("devices", String(device.id), patch);
 
   const reading = await ctx.store.insert("device_telemetry", {
@@ -279,8 +340,13 @@ export async function ingestTelemetry(ctx: Ctx) {
     battery,
     signal_strength: optionalNumber(ctx.body.signalStrength),
     temperature: optionalNumber(ctx.body.temperature),
+    latitude: gps.fix ? gps.latitude : null,
+    longitude: gps.fix ? gps.longitude : null,
+    accuracy_m: gps.accuracy,
+    gps_fix: ctx.body.gpsFix === undefined && gps.latitude === null ? null : gps.fix,
+    satellites: gps.satellites,
     payload: ctx.body.payload && typeof ctx.body.payload === "object" ? ctx.body.payload : {},
-    recorded_at: nowIso()
+    recorded_at: recordedAt
   });
 
   // Satu notifikasi per penurunan ke ambang; tidak diulang selama baterai masih rendah.
@@ -296,8 +362,8 @@ export async function ingestTelemetry(ctx: Ctx) {
       created_at: nowIso()
     });
   }
-  publish("device.updated", { id: device.id, battery, online: true, latitude, longitude }, String(device.village_id ?? ""));
-  return { accepted: true, deviceId: device.id, readingId: reading.id ?? null, updated: deviceShape(updated ?? device) };
+  publish("device.updated", { id: device.id, battery, online: true, latitude: gps.fix ? gps.latitude : null, longitude: gps.fix ? gps.longitude : null }, String(device.village_id ?? ""));
+  return { accepted: true, deviceId: device.id, readingId: reading.id ?? null, locationAccepted: gps.fix, updated: deviceShape(updated ?? device) };
 }
 
 export async function deviceInbox(ctx: Ctx) {
@@ -329,6 +395,15 @@ export async function deviceInbox(ctx: Ctx) {
     }
   }
   for (const commandId of touched) await refreshCommandStatus(ctx, commandId);
+
+  // Umpan balik SOS ke kalung, dan petunjuk jeda tarik berikutnya: rapat saat ada operasi, alarm, atau SOS terbuka; hemat baterai selain itu.
+  const openSos = await ctx.store.one("incidents", {
+    eq: { device_id: String(device.id) },
+    pred: row => !["SAFE", "CANCELLED", "CLOSED"].includes(String(row.status))
+  });
+  const operation = villageId ? await ctx.store.one("operations", { eq: { village_id: villageId, status: "ACTIVE" } }) : null;
+  const alarmNow = await activeAlarmFor(ctx.store, String(device.id));
+  const nextPollSeconds = operation || alarmNow || openCommands.length || openSos ? 30 : 300;
   return {
     deviceId: device.id,
     residentId,
@@ -336,8 +411,15 @@ export async function deviceInbox(ctx: Ctx) {
     villageCoordinates: villageId ? await villageCenter(ctx, villageId) : null,
     activeDevices: devices.filter(item => isOnline(item)).map(item => ({ id: item.id, latitude: item.latitude, longitude: item.longitude })),
     commands: openCommands.slice(0, 20).map(({ receipt, command }) => ({
-      id: command.id, receiptId: receipt.id, severity: command.severity, message: command.message, expiresAt: command.expires_at
+      id: command.id, receiptId: receipt.id, severity: command.severity, media: mediaFor(String(command.severity)),
+      message: command.message, expiresAt: command.expires_at
     })),
+    activeSos: openSos ? {
+      incidentId: openSos.id, status: openSos.status, statusLabel: statusLabel(String(openSos.status)), updatedAt: openSos.updated_at ?? null
+    } : null,
+    // Tombol konfirmasi kalung: terbuka hanya selama ada alarm aktif (SRS FR-4.3).
+    buttonUnlocked: Boolean(alarmNow),
+    nextPollSeconds,
     serverTime: nowIso()
   };
 }
@@ -357,6 +439,8 @@ export async function deviceLocation(ctx: Ctx) {
     battery: device.battery,
     latitude: device.latitude,
     longitude: device.longitude,
+    locationAt: device.location_at ?? null,
+    locationAccuracyMeters: device.location_accuracy_m ?? null,
     status: device.status,
     lastSeenAt: device.last_seen_at
   };
@@ -366,15 +450,31 @@ export async function deviceLocation(ctx: Ctx) {
 export async function deviceSos(ctx: Ctx) {
   const device = ctx.device;
   if (!device) throw badRequest("Endpoint ini hanya untuk perangkat");
+  // SRS FR-4.3: tombol terkunci dalam keadaan normal dan baru terbuka setelah JAGA Desa membunyikan alarm.
+  const alarm = await activeAlarmFor(ctx.store, String(device.id));
+  if (!alarm) throw conflict("Tombol terkunci: belum ada alarm dari JAGA Desa", { ack: "TERKUNCI" });
+  const markAssistance = async () => {
+    if (!alarm.receipt.assistance_requested_at) {
+      await ctx.store.update("command_receipts", String(alarm.receipt.id), { assistance_requested_at: nowIso() });
+      publish("alert.receipt", { commandId: alarm.command.id, deviceId: device.id, status: "ASSISTANCE_REQUESTED" }, String(device.village_id ?? ""));
+    }
+  };
   const open = await ctx.store.one("incidents", {
     eq: { device_id: String(device.id) },
     pred: row => !["SAFE", "CANCELLED", "CLOSED"].includes(String(row.status))
   });
-  if (open) return { accepted: true, duplicate: true, incidentId: open.id, status: open.status };
+  if (open) { await markAssistance(); return { accepted: true, duplicate: true, incidentId: open.id, status: open.status }; }
 
   const residentId = ctx.deviceAuth?.residentId ?? null;
-  const latitude = coordinate(ctx.body.latitude, 90) ?? coordinate(device.latitude, 90);
-  const longitude = coordinate(ctx.body.longitude, 180) ?? coordinate(device.longitude, 180);
+  // Posisi SOS = GPS saat tombol ditekan; tanpa fix dipakai posisi terakhir yang tersimpan.
+  const gps = readGps(ctx.body);
+  const latitude = gps.fix ? gps.latitude : coordinate(device.latitude, 90);
+  const longitude = gps.fix ? gps.longitude : coordinate(device.longitude, 180);
+  if (gps.fix) await ctx.store.update("devices", String(device.id), { ...gpsPatch(gps), last_seen_at: nowIso(), online: true });
+  const detail = [
+    optionalText(ctx.body.description, "Keterangan", 500) ?? "SOS dari JAGA Rumah",
+    gps.fix ? (gps.accuracy !== null ? `akurasi GPS ±${Math.round(gps.accuracy)} m` : "posisi GPS") : "tanpa fix GPS: memakai lokasi terakhir"
+  ].join(" · ");
   const villageIds = device.village_id ? [String(device.village_id)] : [];
   const incident = await createSos({
     ...ctx,
@@ -387,12 +487,23 @@ export async function deviceSos(ctx: Ctx) {
       ownerName: device.owner_name || undefined,
       disasterType: ctx.body.disasterType,
       severity: ctx.body.severity,
-      description: optionalText(ctx.body.description, "Keterangan", 500) ?? "SOS dari JAGA Rumah",
+      description: detail,
       source: ctx.gateway ? "GATEWAY" : "DEVICE"
     },
     session: { ...ctx.session, role: "DESA", villageIds, profileId: `device:${device.id}` }
   } as Ctx);
-  return { accepted: true, duplicate: false, incidentId: (incident as Row).id, status: (incident as Row).status, ack: "SOS_DITERIMA" };
+  // Notifikasi tersimpan untuk Desa/Pusat/Rescue di wilayah itu (tanpa nama warga; nama hanya lewat insiden).
+  const village = device.village_id ? await ctx.store.one("villages", { eq: { id: String(device.village_id) } }) : null;
+  await notify(ctx.store, {
+    session: null, incidentId: String((incident as Row).id), channel: "IN_APP", destination: String(device.village_id ?? ""),
+    templateCode: "SOS", villageId: device.village_id ? String(device.village_id) : null,
+    body: `Kalung ${device.id} meminta bantuan${village ? ` di ${village.name}` : ""}${latitude !== null && longitude !== null ? ` · ${gps.fix ? "GPS" : "lokasi terakhir"} ${latitude.toFixed(5)}, ${longitude.toFixed(5)}` : ""}`
+  });
+  await markAssistance();
+  return {
+    accepted: true, duplicate: false, incidentId: (incident as Row).id, status: (incident as Row).status, ack: "SOS_DITERIMA",
+    locationSource: gps.fix ? "GPS" : "TERAKHIR"
+  };
 }
 
 export const deviceStatuses = () => DEVICE_STATUSES;

@@ -122,6 +122,8 @@ async function supabasePasswordGrant(email: string, password: string): Promise<{
   return { token: payload.access_token, userId: String(payload.user.id), userEmail: String(payload.user.email ?? email) };
 }
 
+const DUMMY_HASH = hashPassword("jaga-dummy-password");
+
 export async function authenticate(store: Store, email: string, password: string): Promise<{ token: string; session: Session }> {
   const address = clean(email).toLowerCase();
   if (!address || !password) throw badRequest("Email dan kata sandi wajib diisi");
@@ -130,6 +132,7 @@ export async function authenticate(store: Store, email: string, password: string
     const grant = await supabasePasswordGrant(address, password).catch(() => null);
     if (grant) {
       const profile = await store.one("profiles", { eq: { id: grant.userId } });
+      if (profile && profile.active === false) throw unauthorized("Akun dinonaktifkan");
       if (profile) {
         const session = await sessionFromProfile(store, profile, {
           userId: grant.userId,
@@ -144,7 +147,10 @@ export async function authenticate(store: Store, email: string, password: string
   const account = store.kind === "supabase"
     ? null
     : await store.one("internal_accounts", { eq: { email: address } });
-  if (!account || account.active === false) throw unauthorized("Email atau kata sandi salah");
+  if (!account || account.active === false) {
+    await verifyPassword(password, DUMMY_HASH); // samakan waktu respons agar email terdaftar tidak dapat ditebak dari kecepatan
+    throw unauthorized("Email atau kata sandi salah");
+  }
   if (!(await verifyPassword(password, String(account.password_hash ?? "")))) throw unauthorized("Email atau kata sandi salah");
 
   const profile = account.profile_id
@@ -183,8 +189,16 @@ export async function authenticateSupabaseToken(store: Store, token: string): Pr
   const user = await response.json() as { id?: string; email?: string };
   if (!user.id) return null;
   const profile = await store.one("profiles", { eq: { id: String(user.id) } });
-  if (!profile) return null;
+  if (!profile || profile.active === false) return null;
   return sessionFromProfile(store, { ...profile, email: user.email ?? profile.email }, { userId: String(user.id), authSource: "supabase" });
+}
+
+/** Mencabut sesi di Supabase Auth supaya token tidak dapat dipakai lagi setelah keluar. */
+export async function revokeSupabaseToken(token: string): Promise<void> {
+  if (!looksLikeJwt(token) || !config.supabaseUrl) return;
+  await fetch(`${config.supabaseUrl}/auth/v1/logout`, {
+    method: "POST", headers: { apikey: config.supabaseAnonKey || config.supabaseSecretKey, Authorization: `Bearer ${token}` }
+  }).catch(() => undefined);
 }
 
 export function tokenFromRequest(req: IncomingMessage): string | null {
@@ -220,6 +234,8 @@ export async function resolveSession(store: Store, req: IncomingMessage): Promis
           village_ids: account.village_ids ?? null
         }, { userId: claims.email });
       }
+      // Akun internal sudah dihapus: token lama tidak boleh dipakai lagi.
+      return null;
     }
     const profile = claims.profileId
       ? await store.one("profiles", { eq: { id: claims.profileId } }).catch(() => null)

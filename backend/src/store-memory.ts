@@ -161,7 +161,8 @@ export class MemoryStore implements Store {
       organization_members: ["organization_id", "profile_id"],
       resident_vulnerabilities: ["resident_id", "vulnerability_type_id"],
       rescue_team_members: ["team_id", "profile_id"],
-      internal_accounts: ["email"]
+      internal_accounts: ["email"],
+      platform_settings: ["key"]
     };
     return composite[name] ?? [];
   }

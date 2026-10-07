@@ -1,5 +1,5 @@
-import { record } from "../audit.js";
-import { assertVillageAccess, scopeIds } from "../auth.js";
+import { actorOf, record } from "../audit.js";
+import { assertVillageAccess, requireRole, scopeIds } from "../auth.js";
 import {
   badRequest, clean, conflict, forbidden, indexBy, isUuid, notFound, nowIso, oneOf, optionalText, requireUuid, text
 } from "../lib.js";
@@ -36,25 +36,36 @@ export async function listVillages(ctx: Ctx) {
   return rows.map(row => ({
     id: row.id,
     name: row.name,
-    hamletCount: row.hamlet_count ?? null,
+    province: row.province ?? null,
     regency: row.regency ?? null,
+    district: row.district ?? null,
     population: row.population ?? null,
     latitude: row.latitude ?? null,
     longitude: row.longitude ?? null,
     accessNotes: row.access_notes ?? null,
-    center: row.center ?? null
+    center: row.center ?? null,
+    headName: row.head_name ?? null,
+    headPhone: row.head_phone ?? null
   }));
 }
 
-export async function listHamlets(ctx: Ctx) {
-  const ids = scopeIds(ctx.session);
-  const villageId = clean(ctx.query.get("villageId"));
-  const rows = await ctx.store.list("hamlets", {
-    ...(ids === null ? {} : ids.length ? { in: { village_id: ids } } : { in: { village_id: ["__tidak_ada__"] } }),
-    ...(villageId ? { eq: { village_id: villageId } } : {}),
-    order: { name: "asc" }
+/** Kontak kepala desa dikelola JAGA Pusat (FR-1.7 untuk penerima pengumuman). */
+export async function updateVillage(ctx: Ctx) {
+  requireRole(ctx.session, ["PUSAT"], "Kontak kepala desa hanya dikelola JAGA Pusat");
+  const village = await ctx.store.one("villages", { eq: { id: requireUuid(param(ctx, "id"), "ID desa") } });
+  if (!village) throw notFound("Desa tidak ditemukan");
+  const patch: Row = {};
+  if (ctx.body.headName !== undefined) patch.head_name = ctx.body.headName === null ? null : text(ctx.body.headName, "Nama kepala desa", { min: 2, max: 160 });
+  if (ctx.body.headPhone !== undefined) patch.head_phone = ctx.body.headPhone === null ? null : optionalText(ctx.body.headPhone, "Telepon kepala desa", 30);
+  if (!Object.keys(patch).length) throw badRequest("Kirim headName dan/atau headPhone");
+  const row = await ctx.store.update("villages", String(village.id), patch);
+  await record(ctx.store, {
+    actorId: actorOf(ctx.session), action: "VILLAGE_HEADS", entityType: "villages", entityId: String(village.id),
+    summary: `Kontak kepala desa ${village.name} diperbarui`
   });
-  return rows;
+  return {
+    id: row?.id, name: row?.name ?? village.name, headName: row?.head_name ?? patch.head_name ?? null, headPhone: row?.head_phone ?? patch.head_phone ?? null
+  };
 }
 
 export async function listHazardZones(ctx: Ctx) {
@@ -131,7 +142,6 @@ export async function listResidents(ctx: Ctx) {
       return {
         id: row.id,
         villageId: row.village_id,
-        hamletId: row.hamlet_id,
         fullName: row.full_name,
         age: ageFrom(row.birth_date),
         birthDate: row.birth_date,
@@ -201,15 +211,9 @@ export async function createResident(ctx: Ctx) {
 
   if (body.consented !== true) throw badRequest("Persetujuan pendataan (consented) wajib diberikan oleh warga atau walinya");
   const birthDate = parseBirthDate(body.birthDate);
-  const hamletId = optionalText(body.hamletId, "Dusun");
-  if (hamletId) {
-    const hamlet = await ctx.store.one("hamlets", { eq: { id: hamletId } });
-    if (!hamlet || String(hamlet.village_id) !== villageId) throw badRequest("Dusun tidak berada di desa tersebut");
-  }
 
   const resident = await ctx.store.insert("residents", {
     village_id: villageId,
-    hamlet_id: hamletId,
     full_name: text(body.fullName ?? body.full_name, "Nama lengkap", { max: 160 }),
     birth_date: birthDate,
     gender: body.gender ? oneOf(body.gender, GENDERS, "Jenis kelamin") : null,
@@ -411,4 +415,80 @@ export async function deleteContact(ctx: Ctx) {
     entityId: String(contact.resident_id), summary: `Menghapus kontak ${contact.name}`
   });
   return { deleted: true };
+}
+
+/* ------------------------------------------------- Titik evakuasi (Desa/Pusat) */
+
+const shelterCoord = (value: unknown, field: string, limit: number): number => {
+  const n = Number(value);
+  if (value === null || value === undefined || value === "" || !Number.isFinite(n) || Math.abs(n) > limit) throw badRequest(`${field} tidak valid`);
+  return n;
+};
+const shelterShape = (row: Row) => ({
+  id: row.id, villageId: row.village_id, name: row.name, address: row.address ?? null,
+  latitude: row.latitude ?? null, longitude: row.longitude ?? null, capacity: row.capacity ?? null,
+  accessibilityNotes: row.accessibility_notes ?? null, active: row.active !== false
+});
+const shelterCapacity = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > 100000) throw badRequest("Kapasitas harus bilangan bulat 0 sampai 100000");
+  return n;
+};
+async function ownShelter(ctx: Ctx): Promise<Row> {
+  requireRole(ctx.session, ["PUSAT", "DESA"], "Hanya pusat atau desa yang dapat mengelola titik evakuasi");
+  const shelter = await ctx.store.one("evacuation_shelters", { eq: { id: requireUuid(param(ctx, "id"), "ID titik evakuasi") } });
+  if (!shelter) throw notFound("Titik evakuasi tidak ditemukan");
+  assertVillageAccess(ctx.session, String(shelter.village_id));
+  return shelter;
+}
+
+export async function createShelter(ctx: Ctx) {
+  requireRole(ctx.session, ["PUSAT", "DESA"], "Hanya pusat atau desa yang dapat mengelola titik evakuasi");
+  const own = ctx.session.villageIds?.length === 1 ? String(ctx.session.villageIds[0]) : "";
+  const villageId = clean(ctx.body.villageId) || own;
+  if (!villageId) throw badRequest("villageId wajib diisi");
+  assertVillageAccess(ctx.session, villageId);
+  const latitude = shelterCoord(ctx.body.latitude, "Lintang", 90), longitude = shelterCoord(ctx.body.longitude, "Bujur", 180);
+  const row = await ctx.store.insert("evacuation_shelters", {
+    village_id: villageId,
+    name: text(ctx.body.name, "Nama titik evakuasi", { min: 3, max: 160 }),
+    address: optionalText(ctx.body.address, "Alamat", 300),
+    latitude, longitude, location: `SRID=4326;POINT(${longitude} ${latitude})`,
+    capacity: shelterCapacity(ctx.body.capacity),
+    accessibility_notes: optionalText(ctx.body.accessibilityNotes, "Catatan", 500),
+    active: true
+  });
+  await record(ctx.store, { actorId: ctx.session.profileId, action: "SHELTER_CREATE", entityType: "evacuation_shelters", entityId: String(row.id), summary: String(row.name) });
+  publish("shelter.updated", { id: row.id }, villageId);
+  return shelterShape(row);
+}
+
+export async function updateShelter(ctx: Ctx) {
+  const shelter = await ownShelter(ctx);
+  const patch: Row = {};
+  if (ctx.body.name !== undefined) patch.name = text(ctx.body.name, "Nama titik evakuasi", { min: 3, max: 160 });
+  if (ctx.body.address !== undefined) patch.address = optionalText(ctx.body.address, "Alamat", 300);
+  if (ctx.body.capacity !== undefined) patch.capacity = shelterCapacity(ctx.body.capacity);
+  if (ctx.body.accessibilityNotes !== undefined) patch.accessibility_notes = optionalText(ctx.body.accessibilityNotes, "Catatan", 500);
+  if (ctx.body.active !== undefined) patch.active = ctx.body.active === true || ctx.body.active === "true";
+  if (ctx.body.latitude !== undefined || ctx.body.longitude !== undefined) {
+    const latitude = shelterCoord(ctx.body.latitude ?? shelter.latitude, "Lintang", 90), longitude = shelterCoord(ctx.body.longitude ?? shelter.longitude, "Bujur", 180);
+    Object.assign(patch, { latitude, longitude, location: `SRID=4326;POINT(${longitude} ${latitude})` });
+  }
+  if (!Object.keys(patch).length) throw badRequest("Tidak ada perubahan");
+  const row = await ctx.store.update("evacuation_shelters", String(shelter.id), patch);
+  await record(ctx.store, { actorId: ctx.session.profileId, action: "SHELTER_UPDATE", entityType: "evacuation_shelters", entityId: String(shelter.id), summary: String(shelter.name) });
+  publish("shelter.updated", { id: shelter.id }, String(shelter.village_id));
+  return shelterShape(row ?? { ...shelter, ...patch });
+}
+
+export async function deleteShelter(ctx: Ctx) {
+  const shelter = await ownShelter(ctx);
+  let deactivated = false;
+  try { await ctx.store.remove("evacuation_shelters", String(shelter.id)); }
+  catch { await ctx.store.update("evacuation_shelters", String(shelter.id), { active: false }); deactivated = true; } // masih dipakai rencana rute
+  await record(ctx.store, { actorId: ctx.session.profileId, action: "SHELTER_DELETE", entityType: "evacuation_shelters", entityId: String(shelter.id), summary: String(shelter.name) });
+  publish("shelter.updated", { id: shelter.id }, String(shelter.village_id));
+  return { id: shelter.id, deleted: !deactivated, deactivated };
 }
