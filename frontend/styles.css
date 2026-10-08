@@ -40,12 +40,12 @@
   --shadow: 0 1px 2px rgba(16, 40, 28, .04), 0 10px 30px rgba(16, 40, 28, .04);
   --font-head: "Manrope", "DM Sans", system-ui, sans-serif;
   --font-body: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --side-w: 252px;
+  --side-w: 232px;
 }
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; font-family: var(--font-body); font-size: 14px; line-height: 1.55; color: var(--ink); background: var(--bg); }
+body { margin: 0; font-family: var(--font-body); font-size: 13px; line-height: 1.5; color: var(--ink); background: var(--bg); }
 h1, h2, h3, h4 { font-family: var(--font-head); margin: 0; letter-spacing: -.015em; }
 p { margin: 0; }
 a { color: var(--green-600); }
@@ -115,10 +115,10 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .demo-bar { background: #fff3cd; color: #6b4e00; text-align: center; padding: 6px 16px; font-size: 12px; font-weight: 600; }
 
 /* ------------------------------------------------------------------ Halaman */
-.page { max-width: 1320px; margin: 0 auto; padding: 6px 36px 88px; }
+.page { max-width: 1280px; margin: 0 auto; padding: 16px 32px 80px; }
 .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-wrap: wrap; margin-bottom: 24px; }
 .eyebrow { display: block; margin-bottom: 8px; font: 700 11px var(--font-head); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
-.page-head h1 { font-size: 32px; line-height: 1.15; font-weight: 800; letter-spacing: -.03em; }
+.page-head h1 { font-size: 26px; line-height: 1.15; font-weight: 800; letter-spacing: -.03em; }
 .page-head p { color: var(--muted); margin-top: 8px; max-width: 64ch; font-size: 14px; }
 .page-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .stack { display: grid; gap: 20px; }
@@ -144,7 +144,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .kpi { position: relative; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
 .kpi-top { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
 .kpi-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 12px; background: var(--green-50); color: var(--green-800); }
-.kpi strong { display: block; margin-top: 14px; font: 800 36px var(--font-head); letter-spacing: -.04em; line-height: 1; }
+.kpi strong { display: block; margin-top: 12px; font: 800 30px var(--font-head); letter-spacing: -.04em; line-height: 1; }
 .kpi small { display: block; margin-top: 8px; font-size: 12.5px; }
 .kpi.red { border-color: #f3cbc7; background: var(--red-bg); }
 .kpi.red .kpi-icon { background: var(--red); color: #fff; }
@@ -262,9 +262,12 @@ legend { padding: 0 8px; font: 800 12px var(--font-head); color: var(--green-800
 .level { padding: 16px 14px; border: 2px solid var(--line); border-radius: 16px; background: #fff; text-align: left; }
 .level b { display: block; font: 800 15px var(--font-head); }
 .level small { display: block; margin-top: 4px; }
+.level.NORMAL.active { border-color: var(--ok); background: var(--ok-bg); }
 .level.WASPADA.active { border-color: #d9b400; background: var(--yellow-bg); }
 .level.SIAGA.active { border-color: var(--orange); background: var(--orange-bg); }
+.level.AWAS.active { border-color: var(--red); background: var(--red-bg); }
 .level.EVAKUASI.active { border-color: var(--red); background: var(--red-bg); }
+.levels { grid-template-columns: repeat(4, 1fr); }
 .status-select { padding: 7px 11px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-weight: 600; font-size: 12px; }
 
 /* Dropdown konsisten dengan tema (bukan tampilan bawaan peramban). */

@@ -141,3 +141,144 @@ a { color: inherit; }
   .cta-row .btn { flex: 1; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .chip.live i { animation: none; } .btn { transition: none; } }
+
+/* LUNERA-STYLE EXPLODED 3D NECKLACE */
+.lunera-3d-wrapper {
+  width: 100%;
+  height: 350px;
+  perspective: 1000px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, #eaf4f4 0%, #faf8f1 70%);
+  border-radius: 20px;
+  margin-bottom: 24px;
+  cursor: grab;
+  overflow: visible;
+}
+.lunera-3d-wrapper:active { cursor: grabbing; }
+
+.lunera-3d-scene {
+  width: 120px;
+  height: 180px;
+  position: relative;
+  transform-style: preserve-3d;
+  transform: rotateX(55deg) rotateZ(-40deg);
+  transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.lunera-3d-wrapper:hover .lunera-3d-scene {
+  transform: rotateX(45deg) rotateZ(-25deg);
+}
+
+.n-body {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, #1a4f38, #0a2116);
+  border-radius: 60px;
+  box-shadow: 
+    -2px 2px 0 #05140d,
+    -4px 4px 0 #05140d,
+    -6px 6px 0 #05140d,
+    -10px 10px 20px rgba(0,0,0,0.5);
+  border: 2px solid #274433;
+  transform: translateZ(0);
+  transition: all 0.5s ease;
+}
+
+.n-comp {
+  position: absolute;
+  transform-style: preserve-3d;
+  transition: all 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  cursor: pointer;
+  outline: none;
+}
+
+.n-comp::before {
+  content: '';
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 2px; height: 0;
+  background: rgba(39, 68, 51, 0.6);
+  transform: translate(-50%, -50%) translateZ(-10px) rotateX(90deg);
+  transform-origin: top center;
+  transition: height 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.5s;
+  opacity: 0;
+}
+.lunera-3d-wrapper:hover .n-comp::before {
+  height: 60px;
+  opacity: 1;
+}
+
+.n-strap {
+  top: -40px; left: 30px;
+  width: 60px; height: 60px;
+  border: 8px solid #333;
+  border-radius: 50% 50% 0 0;
+  border-bottom: none;
+  transform: translateZ(10px);
+}
+.lunera-3d-wrapper:hover .n-strap { transform: translateZ(60px) translateY(-10px); }
+
+.n-led {
+  top: 20px; left: 50px;
+  width: 20px; height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 15px #fff, inset 0 0 5px #ccc;
+  transform: translateZ(15px);
+}
+.lunera-3d-wrapper:hover .n-led { transform: translateZ(80px); box-shadow: 0 0 30px #00ffcc, inset 0 0 10px #fff; background: #e0ffff; }
+
+.n-sos {
+  top: 60px; left: 25px;
+  width: 70px; height: 70px;
+  background: linear-gradient(135deg, #f44336, #c62828);
+  border-radius: 50%;
+  color: white; font-weight: bold; font-size: 20px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: -1px 1px 0 #8e0000, -2px 2px 0 #8e0000, 0 0 15px rgba(244,67,54,0.4);
+  transform: translateZ(20px);
+}
+.lunera-3d-wrapper:hover .n-sos { transform: translateZ(110px); box-shadow: -2px 2px 0 #8e0000, -4px 4px 0 #8e0000, 0 20px 40px rgba(244,67,54,0.6); }
+.n-sos:active { transform: translateZ(90px) !important; }
+
+.n-speaker {
+  bottom: 30px; left: 40px;
+  width: 40px; height: 12px;
+  background: #111;
+  border-radius: 10px;
+  display: flex; gap: 4px; justify-content: center; align-items: center;
+  transform: translateZ(12px);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.8);
+}
+.n-speaker::after { content:'|||'; color:#555; font-size: 8px; letter-spacing: 2px; }
+.lunera-3d-wrapper:hover .n-speaker { transform: translateZ(70px) translateY(10px); }
+
+.n-tooltip {
+  position: absolute;
+  left: 120%; top: 50%;
+  transform: translateY(-50%) rotateZ(25deg) rotateX(-45deg);
+  background: rgba(255,255,255,0.95);
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  color: #123a29;
+  font-family: inherit;
+  width: 170px;
+  pointer-events: none;
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.6);
+  z-index: 100;
+}
+.n-comp:hover .n-tooltip, .n-comp:focus .n-tooltip {
+  opacity: 1;
+  left: 150%;
+}
+@media (max-width: 680px) {
+  .n-tooltip { left: 50%; top: 150%; transform: translateX(-50%) rotateZ(25deg) rotateX(-45deg); }
+  .n-comp:hover .n-tooltip, .n-comp:focus .n-tooltip { top: 180%; left: 50%; }
+}

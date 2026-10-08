@@ -256,7 +256,7 @@ function residentsView({ canAdd, withVillage }) {
   const rowCells = r => `<td><div class="cell-flex"><span class="avatar-sm">${esc(initials(r.fullName))}</span><div><b>${esc(r.fullName)}</b><small>${r.age != null ? `${r.age} th` : 'Usia —'} · ${r.livesAlone ? 'tinggal sendiri' : 'bersama keluarga'}</small></div></div></td>
       <td>${groupChips(r.vulnerabilities)}</td>
       <td>${abilityBadge(r.evacuationAbility)}${r.timeCriticalMedical ? `<small><b>Medis mendesak</b></small>` : ''}</td>
-      <td>${r.deviceId ? badge(r.deviceId, 'green', true) : badge('Belum berkalung', 'gray', true)}</td>${canAdd ? `<td class="row-actions"><button class="btn outline sm" data-action="edit-resident" data-id="${esc(r.id)}">Ubah</button> <button class="btn outline sm danger-text" data-action="delete-resident" data-id="${esc(r.id)}" data-name="${esc(r.fullName)}">Nonaktifkan</button></td>` : ''}`;
+      <td>${r.deviceId ? badge(r.deviceId, 'green', true) : badge('Belum berkalung', 'gray', true)}</td>${canAdd ? `<td class="row-actions" style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end">${r.deviceId ? `<button class="btn sm danger outline" data-action="device-unbind" data-id="${esc(r.id)}">Lepas</button>` : `<button class="btn sm primary" data-action="open-modal" data-modal="device-assign" data-id="${esc(r.id)}">Pasang</button>`} <button class="btn outline sm" data-action="edit-resident" data-id="${esc(r.id)}">Ubah</button> <button class="btn outline sm danger-text" data-action="delete-resident" data-id="${esc(r.id)}" data-name="${esc(r.fullName)}">Hapus</button></td>` : ''}`;
   const rowHtml = r => `<tr class="group-member">${rowCells(r)}</tr>`;
   let body;
   if (!rows.length) body = empty('Tidak ada warga yang cocok', 'Ubah kata kunci atau filter.', 'users');
@@ -530,31 +530,51 @@ function viewDesaBeranda() {
   const assigned = D.devices.filter(d => d.residentId);
   const banner = op ? operationCard(op) : callout({ tone: 'blue', icon: 'shield', title: 'Tidak ada operasi berjalan', text: 'Operasi dibuka otomatis saat Anda membunyikan alarm Siaga atau Awas untuk seluruh desa.', actions: `<a class="btn primary sm" href="#/alarm">${icon('bell')} Buka alarm</a>` });
   const breakdown = D.safety?.breakdown || [];
-  const emergencyCard = `<div class="emergency-card"><div><b>Sinyal darurat</b><small>Satu tombol: seluruh kalung di desa berbunyi dan bergetar, operasi Rescue dibuka. Pakai hanya saat bencana terjadi.</small></div><button class="btn danger" data-action="open-modal" data-modal="emergency">${icon('bell')} Kirim sinyal darurat</button></div>`;
+  
   const w = D.weather?.current;
-  const weatherCard = w ? `<div class="card" style="background:var(--green-50); border:1px solid var(--green-200); padding:16px;"><b>Cuaca Terkini (Open-Meteo)</b><div style="margin-top:8px; display:flex; gap:16px;"><div class="fact"><small>Suhu</small><b>${w.temperature_2m}°C</b></div><div class="fact"><small>Curah Hujan</small><b>${w.precipitation} mm</b></div></div></div>` : '';
-  return `${pageHead('Beranda desa', 'Kondisi terkini warga rentan, kalung, dan kejadian di desa Anda.')}
-    <div class="stack">${weatherCard}${emergencyCard}${banner}
-    <div class="kpis">
-      ${kpi({ icon: 'users', label: 'Warga terdaftar', value: D.residents.length, hint: `${D.residents.filter(r => r.deviceId).length} berkalung` })}
-      ${kpi({ icon: 'device', label: 'Kalung online', value: `${assigned.filter(d => d.online).length}/${assigned.length}`, hint: `${assigned.filter(d => num(d.battery) !== null && d.battery <= 20).length} baterai rendah`, tone: 'blue' })}
-      ${kpi({ icon: 'alert', label: 'SOS aktif', value: D.incidents.filter(isActive).length, hint: 'Perlu ditindaklanjuti', tone: D.incidents.some(isActive) ? 'red' : '' })}
-      ${kpi({ icon: 'check', label: 'Warga dinyatakan aman', value: D.safety?.safe ?? 0, hint: `${D.safety?.waitingHelp ?? 0} menunggu bantuan` })}
-    </div>
-    <div class="grid two">
-      ${card({ title: 'Peta desa', sub: 'Titik warga, zona bahaya, dan titik kumpul', flush: true, extra: 'has-legend', body: `<div class="map-box" data-map="village"></div>${mapLegend('village')}` })}
-      <div class="stack">
-        ${card({ title: 'Perlu tindak lanjut', sub: `${items.length} hal`, flush: true, body: items.length ? `<div class="list">${items.slice(0, 7).map(i => attentionRow(i.tone, i.name, i.title, i.sub)).join('')}</div>` : empty('Semua terkendali', 'Tidak ada hal mendesak saat ini.') })}
-        ${breakdown.length ? card({ title: 'Status warga', flush: true, body: `<div class="list">${breakdown.map(b => `<div class="row-item"><span class="dot ${({ safe: 'green', inProgress: 'blue', waiting: 'orange', normal: 'gray' })[b.key] || 'gray'}"></span><div class="grow"><b>${esc(b.label)}</b></div><b>${b.value}</b></div>`).join('')}</div>` }) : ''}
+  const weatherHtml = w ? `
+    <div class="card pad" style="background:var(--green-50); border-color:var(--green-200); display:flex; flex-direction:column; justify-content:center;">
+      <b style="color:var(--green-800); margin-bottom:8px; display:flex; gap:6px; align-items:center;">${icon('info')} Cuaca Terkini</b>
+      <div style="display:flex; gap:16px;">
+        <div class="fact"><small>Suhu</small><b>${w.temperature_2m}°C</b></div>
+        <div class="fact"><small>Hujan</small><b>${w.precipitation} mm</b></div>
       </div>
-    </div></div>`;
-}
+    </div>` : '';
 
+  const emergencyHtml = `
+    <div class="card pad" style="background:var(--red-bg); border-color:#f3cbc7;">
+      <b style="color:var(--red); display:block; margin-bottom:4px;">Kondisi Darurat</b>
+      <small style="color:var(--ink); display:block; margin-bottom:12px;">Aktifkan sirine dan buka operasi rescue.</small>
+      <button class="btn danger" data-action="open-modal" data-modal="emergency" style="width:100%">${icon('bell')} Bunyikan Alarm</button>
+    </div>`;
+
+  return `${pageHead('Beranda desa', 'Kondisi terkini warga rentan, kalung, dan kejadian di desa Anda.')}
+    <div class="stack">
+      <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:20px;">
+        ${banner}
+        ${weatherHtml}
+        ${emergencyHtml}
+      </div>
+      <div class="kpis">
+        ${kpi({ icon: 'users', label: 'Warga terdaftar', value: D.residents.length, hint: `${D.residents.filter(r => r.deviceId).length} berkalung` })}
+        ${kpi({ icon: 'device', label: 'Kalung online', value: `${assigned.filter(d => d.online).length}/${assigned.length}`, hint: `${assigned.filter(d => num(d.battery) !== null && d.battery <= 20).length} baterai rendah`, tone: 'blue' })}
+        ${kpi({ icon: 'alert', label: 'SOS aktif', value: D.incidents.filter(isActive).length, hint: 'Perlu ditindaklanjuti', tone: D.incidents.some(isActive) ? 'red' : '' })}
+        ${kpi({ icon: 'check', label: 'Warga dinyatakan aman', value: D.safety?.safe ?? 0, hint: `${D.safety?.waitingHelp ?? 0} menunggu bantuan` })}
+      </div>
+      <div class="grid two">
+        ${card({ title: 'Peta desa', sub: 'Titik warga, zona bahaya, dan titik kumpul', flush: true, extra: 'has-legend', body: `<div class="map-box" data-map="village"></div>${mapLegend('village')}` })}
+        <div class="stack">
+          ${card({ title: 'Perlu tindak lanjut', sub: `${items.length} hal`, flush: true, body: items.length ? `<div class="list">${items.slice(0, 7).map(i => attentionRow(i.tone, i.name, i.title, i.sub)).join('')}</div>` : empty('Semua terkendali', 'Tidak ada hal mendesak saat ini.') })}
+          ${breakdown.length ? card({ title: 'Status warga', flush: true, body: `<div class="list">${breakdown.map(b => `<div class="row-item"><span class="dot ${({ safe: 'green', inProgress: 'blue', waiting: 'orange', normal: 'gray' })[b.key] || 'gray'}"></span><div class="grow"><b>${esc(b.label)}</b></div><b>${b.value}</b></div>`).join('')}</div>` }) : ''}
+        </div>
+      </div>
+    </div>`;
+}
 function viewDesaWarga() { return residentsView({ canAdd: true, withVillage: false }); }
 
 function viewDesaAlarm() {
   const a = state.ui.alarm;
-  const levels = [['WASPADA', 'Waspada', 'Peringatan dini. Tidak membuka operasi Rescue.'], ['SIAGA', 'Siaga', 'Bersiap mengungsi. Membuka operasi Rescue.'], ['AWAS', 'Awas', 'Segera mengungsi. Membuka operasi Rescue.']];
+  const levels = [['NORMAL','Normal','Kondisi aman. Pemantauan biasa.'],['WASPADA', 'Waspada', 'Peringatan dini. Kalung bergetar pelan, siapkan warga.'], ['SIAGA', 'Siaga', 'Bersiap mengungsi. Tim Rescue diaktifkan.'], ['AWAS', 'Awas', 'Evakuasi segera! Kalung bunyi keras. Rescue dikerahkan penuh.']];
   const devices = D.devices.filter(d => d.residentId);
   const opens = ['SIAGA', 'AWAS'].includes(a.severity) && a.target === 'ALL';
   const history = D.alerts.slice(0, 8);
@@ -564,13 +584,14 @@ function viewDesaAlarm() {
     <label class="field">Target<select data-bind="alarm.target"><option value="ALL" ${a.target === 'ALL' ? 'selected' : ''}>Seluruh kalung di desa</option><optgroup label="Kelompok">${[['DISABILITAS', 'Penyandang disabilitas'], ['LANSIA', 'Lansia'], ['IBU_HAMIL', 'Ibu hamil']].map(([code, label]) => `<option value="GROUP:${code}" ${a.target === `GROUP:${code}` ? 'selected' : ''}>${label}</option>`).join('')}</optgroup><optgroup label="Satu kalung">${devices.map(d => `<option value="${esc(d.id)}" ${a.target === d.id ? 'selected' : ''}>${esc(d.residentName || d.ownerName || d.id)} · ${esc(d.id)}</option>`).join('')}</optgroup></select></label>
     <div class="form-grid"><label class="field">Tinggi air terpantau (cm)<input type="number" min="0" max="2000" placeholder="mis. 100 untuk 1 meter" value="${esc(a.waterLevelCm)}" data-bind="alarm.waterLevelCm"><small>Masukkan berdasarkan pengamatan lapangan.</small></label>
       <label class="field">Catatan pengamatan<input type="text" maxlength="300" placeholder="mis. Sungai naik, titik rendah tergenang" value="${esc(a.note)}" data-bind="alarm.note"></label></div>
-    <label class="field">Pesan untuk warga<textarea placeholder="${esc(DEFAULT_MESSAGE[a.severity])}" data-bind="alarm.message">${esc(a.message)}</textarea><small>Kosongkan untuk memakai pesan standar.</small></label>
+    <label class="field">Pesan instruksi untuk Tim Rescue<textarea placeholder="${esc(DEFAULT_MESSAGE[a.severity])}" data-bind="alarm.message">${esc(a.message)}</textarea><small>Tim Rescue akan membaca pesan ini saat memulai operasi. Kosongkan untuk memakai pesan standar.</small></label>
     ${opens ? callout({ tone: 'yellow', icon: 'signal', title: 'Alarm ini membuka operasi Rescue', text: 'JAGA Rescue akan melihat warga berkalung di desa selama operasi berjalan.' }) : ''}
     <button type="submit" class="btn primary block">${icon('bell')} Tinjau & aktifkan alarm</button></form>`;
   const historyBody = history.length ? `<div class="list">${history.map(h => `<div class="row-item"><span class="row-icon ${SEVERITY[h.severity]?.[1] || ''}">${icon('bell')}</span><div class="grow"><b>${esc(h.message || h.target)}</b><small>${esc(h.target)} · ${esc(timeAgo(h.createdAt))}</small></div>${severityBadge(h.severity)}<small>${h.receipts?.acknowledged ?? 0}/${h.receipts?.total ?? 0} dikonfirmasi</small></div>`).join('')}</div>` : empty('Belum ada alarm', '', 'bell');
   return `${pageHead('Alarm & operasi', 'Bunyikan alarm ke kalung warga setelah kondisi diverifikasi. Anda yang paling tahu keadaan lapangan.')}
     <div class="grid two">${card({ title: 'Aktifkan alarm', sub: 'Dikonfirmasi manusia sebelum dikirim', flush: true, body: form })}
-      <div class="stack">${D.operations.length ? D.operations.map(operationCard).join('') : ''}${card({ title: 'Riwayat alarm', flush: true, body: historyBody })}${card({ title: 'Laporan pasca-operasi Rescue', sub: `${D.reports.length} laporan`, flush: true, body: reportsTable() })}</div></div>`;
+      <div class="stack">${D.operations.length ? D.operations.map(operationCard).join('') : ''}${card({ title: 'Riwayat Peringatan (Desa ini)', flush: true, body: historyBody })}</div></div>
+    <div class="stack" style="margin-top:20px">${card({ title: 'Laporan pasca-operasi Rescue', sub: `${D.reports.length} laporan`, flush: true, body: reportsTable() })}</div>`;
 }
 
 function viewDesaTitik() {
@@ -923,25 +944,72 @@ function modalShell({ title, sub = '', body, foot, wide = false }) {
 }
 function residentModal() {
   const types = D.vulnTypes;
+  const mapId = 'modalMapRes';
   const body = `<form id="modalForm" data-form="resident" class="form-grid">
     <label class="field wide">Nama lengkap<input name="fullName" required minlength="3" maxlength="160"></label>
     <label class="field">Tanggal lahir<input name="birthDate" type="date"></label>
     <label class="field">Jenis kelamin<select name="gender"><option value="">Tidak diisi</option><option value="LAKI_LAKI">Laki-laki</option><option value="PEREMPUAN">Perempuan</option><option value="LAINNYA">Lainnya</option></select></label>
-    <label class="field">Telepon<input name="phone" inputmode="tel"></label>
+    <label class="field">NIK (16 digit)<input name="nik" maxlength="16" inputmode="numeric" placeholder="3273xxxxxxxxxxxx"></label>
+    <label class="field">No. Kartu Keluarga<input name="noKk" maxlength="16" inputmode="numeric" placeholder="3273xxxxxxxxxxxx"></label>
+    <label class="field">Telepon (warga)<input name="phone" inputmode="tel"></label>
+    <label class="field">Kontak darurat (keluarga/tetangga)<input name="emergencyContact" inputmode="tel" placeholder="mis. 0812-xxxx-xxxx (Nama)"></label>
     <label class="field wide">Alamat<input name="address"></label>
-    <label class="field">Latitude<input name="latitude" type="number" step="any" placeholder="4.8479"></label>
-    <label class="field">Longitude<input name="longitude" type="number" step="any" placeholder="97.4728"></label>
-    <fieldset class="wide"><legend>Kelompok rentan</legend><div class="checks">${types.map(t => `<label class="check"><input type="checkbox" name="vulnerability" value="${esc(t.code)}"><span>${esc(t.name)}<small>${esc(t.category)}</small></span></label>`).join('')}</div></fieldset>
-    <label class="field wide">Kemampuan evakuasi mandiri<select name="evacuationAbility"><option value="">Belum dinilai</option><option value="MANDIRI">Dapat mengungsi sendiri</option><option value="PERLU_BANTUAN">Perlu bantuan mengungsi</option><option value="TIDAK_BISA_SENDIRI">Tidak bisa mengungsi sendiri</option></select><small>Menentukan prioritas penyelamatan. Isi berdasarkan penilaian langsung.</small></label>
+    <div class="field wide" style="display:flex;flex-direction:column;gap:6px;">
+      <span>Lokasi Rumah — klik titik di peta</span>
+      <div id="${mapId}" class="map-box" style="height:220px;border-radius:12px;z-index:1"></div>
+      <div style="display:flex;gap:10px;margin-top:4px;">
+        <input name="latitude" id="resModalLat" type="number" step="any" placeholder="Latitude (klik peta)" readonly style="flex:1;background:#f5f7f5">
+        <input name="longitude" id="resModalLng" type="number" step="any" placeholder="Longitude (klik peta)" readonly style="flex:1;background:#f5f7f5">
+      </div>
+    </div>
+    <fieldset class="wide"><legend>Kelompok rentan</legend><div class="checks">${types.map(t => `<label class="check"><input type="checkbox" name="vulnerability" value="${esc(t.code)}"><span>${esc(t.name)}<small>${esc(t.category)}</small></span></label>`).join('')}<label class="check"><input type="checkbox" name="vuln_other" id="vulnOther"><span>Kondisi lainnya<small>Sebutkan di catatan medis di bawah</small></span></label></div></fieldset>
+    <label class="field wide">Kemampuan evakuasi mandiri<select name="evacuationAbility"><option value="">Belum dinilai</option><option value="MANDIRI">Dapat mengungsi sendiri</option><option value="PERLU_BANTUAN">Perlu bantuan mengungsi</option><option value="TIDAK_BISA_SENDIRI">Tidak bisa mengungsi sendiri</option></select><small>Menentukan prioritas penyelamatan.</small></label>
     <label class="check wide"><input type="checkbox" name="timeCriticalMedical"><span>Kebutuhan medis yang tidak bisa ditunda<small>Insulin, oksigen, dialisis, atau persalinan sudah dekat</small></span></label>
     <label class="check wide"><input type="checkbox" name="livesAlone"><span>Tinggal sendiri</span></label>
     <label class="field">Catatan mobilitas<textarea name="mobilityNotes"></textarea></label>
     <label class="field">Catatan komunikasi<textarea name="communicationNotes"></textarea></label>
-    <label class="field">Kondisi medis relevan<textarea name="medicalNotes"></textarea></label>
+    <label class="field">Kondisi medis relevan / kondisi lainnya<textarea name="medicalNotes"></textarea></label>
     <label class="field">Kebutuhan saat evakuasi<textarea name="evacuationNotes"></textarea></label>
     <label class="check wide"><input type="checkbox" name="consented" required><span>Persetujuan pendataan telah diperoleh dari warga atau walinya<small>Data kesehatan dan disabilitas adalah data pribadi yang sensitif.</small></span></label></form>`;
-  return modalShell({ title: 'Tambah warga', sub: 'Data digunakan hanya untuk peringatan dan evakuasi.', body, wide: true,
+  const shell = modalShell({ title: 'Tambah warga', sub: 'Data digunakan hanya untuk peringatan dan evakuasi.', body, wide: true,
     foot: `<button class="btn outline" data-action="close-modal">Batal</button><button class="btn primary" type="submit" form="modalForm">Simpan warga</button>` });
+  // Mount map after modal rendered
+  setTimeout(() => {
+    const el = document.getElementById(mapId);
+    if (!el || !window.L) return;
+    const map = L.map(el).setView([-6.2, 106.8], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+    let marker = null;
+    const latI = document.getElementById('resModalLat'), lngI = document.getElementById('resModalLng');
+    map.on('click', e => {
+      if (marker) map.removeLayer(marker);
+      marker = L.marker(e.latlng).addTo(map);
+      latI.value = e.latlng.lat.toFixed(6);
+      lngI.value = e.latlng.lng.toFixed(6);
+    });
+    const searchBtn = document.getElementById('rnBtnSearch');
+    if(searchBtn) {
+      searchBtn.onclick = async () => {
+        const q = document.getElementById('rnSearch').value;
+        if(!q) return;
+        searchBtn.textContent = '...';
+        try {
+          const rData = await fetch('https://nominatim.openstreetmap.org/search?format=json&q='+encodeURIComponent(q));
+          const data = await rData.json();
+          if(data && data.length > 0) {
+            const lat = Number(data[0].lat), lon = Number(data[0].lon);
+            map.setView([lat, lon], 16);
+            if (marker) map.removeLayer(marker);
+            marker = L.marker([lat, lon]).addTo(map);
+            latI.value = lat.toFixed(6);
+            lngI.value = lon.toFixed(6);
+          } else { alert('Lokasi tidak ditemukan'); }
+        } catch {}
+        searchBtn.textContent = 'Cari';
+      };
+    }
+  }, 100);
+  return shell;
 }
 function accountModal() {
   const body = `<form id="modalForm" data-form="account" class="form-grid">
@@ -1077,16 +1145,73 @@ async function loadRoute(m) {
 function shelterModal(id) {
   const s = D.shelters.find(item => item.id === id) || {};
   const v = D.villages[0] || {};
+  const mapId = 'modalMapShelter';
   const body = `<form id="modalForm" data-form="shelter" data-id="${esc(s.id || '')}" class="form-grid">
     <label class="field wide">Nama titik evakuasi<input name="name" required minlength="3" maxlength="160" value="${esc(s.name || '')}" placeholder="mis. Meunasah Gampong"></label>
     <label class="field wide">Alamat atau patokan<input name="address" maxlength="300" value="${esc(s.address || '')}"></label>
-    <label class="field">Latitude<input name="latitude" type="number" step="any" required value="${esc(s.latitude ?? v.latitude ?? '')}"></label>
-    <label class="field">Longitude<input name="longitude" type="number" step="any" required value="${esc(s.longitude ?? v.longitude ?? '')}"></label>
+    <div class="field wide" style="display:flex;flex-direction:column;gap:6px;">
+      <span>Tentukan Lokasi (Peta)</span>
+      <div style="display:flex;gap:8px;"><input type="text" id="shSearch" placeholder="Cari lokasi (mis. Kantor Desa X)" style="flex:1"><button type="button" class="btn outline sm" id="shBtnSearch">Cari</button></div>
+      <div id="${mapId}" class="map-box" style="height:240px;border-radius:12px;z-index:1"></div>
+      <div style="display:flex;gap:10px;margin-top:4px;">
+        <input name="latitude" id="shModalLat" type="number" step="any" required value="${esc(s.latitude ?? v.latitude ?? '')}" placeholder="Latitude" readonly style="flex:1;background:#f5f7f5">
+        <input name="longitude" id="shModalLng" type="number" step="any" required value="${esc(s.longitude ?? v.longitude ?? '')}" placeholder="Longitude" readonly style="flex:1;background:#f5f7f5">
+      </div>
+    </div>
     <label class="field">Kapasitas (orang)<input name="capacity" type="number" min="0" max="100000" value="${esc(s.capacity ?? '')}"></label>
     <label class="field wide">Catatan (lantai atas, akses kursi roda, dsb.)<textarea name="accessibilityNotes" maxlength="500">${esc(s.accessibilityNotes || '')}</textarea></label></form>`;
-  return modalShell({ title: s.id ? 'Ubah titik evakuasi' : 'Tambah titik evakuasi', sub: 'Koordinat dapat disalin dari peta (klik kanan di Google/OpenStreetMap).', body,
+  const shell = modalShell({ title: s.id ? 'Ubah titik evakuasi' : 'Tambah titik evakuasi', sub: 'Cari nama tempat atau geser langsung di peta.', body,
     foot: `<button class="btn outline" data-action="close-modal">Batal</button><button class="btn primary" type="submit" form="modalForm">Simpan</button>` });
+  setTimeout(() => {
+    const el = document.getElementById(mapId);
+    if (!el || !window.L) return;
+    const lat0 = Number(s.latitude || v.latitude || -6.2);
+    const lng0 = Number(s.longitude || v.longitude || 106.8);
+    const map = L.map(el).setView([lat0, lng0], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+    const latI = document.getElementById('shModalLat'), lngI = document.getElementById('shModalLng');
+    let marker = (latI.value && lngI.value) ? L.marker([Number(latI.value), Number(lngI.value)]).addTo(map) : null;
+    map.on('click', e => {
+      if (marker) map.removeLayer(marker);
+      marker = L.marker(e.latlng).addTo(map);
+      latI.value = e.latlng.lat.toFixed(6);
+      lngI.value = e.latlng.lng.toFixed(6);
+    });
+    const searchBtn = document.getElementById('shBtnSearch');
+    if(searchBtn) {
+      searchBtn.onclick = async () => {
+        const q = document.getElementById('shSearch').value;
+        if(!q) return;
+        searchBtn.textContent = '...';
+        try {
+          const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&q='+encodeURIComponent(q));
+          const data = await r.json();
+          if(data && data.length > 0) {
+            const lat = Number(data[0].lat), lon = Number(data[0].lon);
+            map.setView([lat, lon], 16);
+            if (marker) map.removeLayer(marker);
+            marker = L.marker([lat, lon]).addTo(map);
+            latI.value = lat.toFixed(6);
+            lngI.value = lon.toFixed(6);
+          } else { alert('Lokasi tidak ditemukan'); }
+        } catch {}
+        searchBtn.textContent = 'Cari';
+      };
+    }
+  }, 100);
+  return shell;
 }
+function deviceAssignModal(id) {
+  const r = D.residents.find(x => x.id === id);
+  if (!r) return '';
+  const available = D.devices.filter(d => !d.residentId && d.villageId === r.villageId);
+  const body = `<form id="modalForm" data-form="device-assign" data-id="${esc(id)}" style="display:grid;gap:14px">
+    <p>Pasangkan kalung dari stok ke warga <b>${esc(r.fullName || r.full_name)}</b>.</p>
+    <label class="field">Pilih Kalung${available.length === 0 ? '<p style="color:var(--red)">Tidak ada stok kalung tersedia di desa ini.</p>' : `<select name="deviceId" required>${available.map(d => `<option value="${esc(d.id)}">${esc(d.id)} (${esc(d.model || 'JAGA')})</option>`).join('')}</select>`}</label>
+  </form>`;
+  return modalShell({ title: 'Pasang Kalung', body, foot: `<button class="btn outline" data-action="close-modal">Batal</button>${available.length ? `<button class="btn primary" type="submit" form="modalForm">Pasangkan</button>` : ''}` });
+}
+
 function deviceNewModal() {
   const body = `<form id="modalForm" data-form="device-new" class="form-grid">
     <label class="field">ID kalung (opsional)<input name="id" maxlength="40" placeholder="otomatis: JAGA-XXXXXX"></label>
@@ -1156,15 +1281,26 @@ function residentEditModal(m) {
   const d = m.detail, r = d.resident, has = code => (d.vulnerabilities || []).some(v => v.type?.code === code);
   const types = D.vulnTypes;
   const val = v => esc(v ?? '');
+  const mapId = 'modalMapResEdit';
   const body = `<form id="modalForm" data-form="resident-edit" data-id="${esc(r.id)}" class="form-grid">
     <label class="field wide">Nama lengkap<input name="fullName" required minlength="3" maxlength="160" value="${val(r.full_name)}"></label>
+    <label class="field">NIK (KTP)<input name="nik" minlength="16" maxlength="16" type="number" placeholder="16 digit angka" value="${val(r.nik)}"></label>
+    <label class="field">No. KK<input name="kk" minlength="16" maxlength="16" type="number" placeholder="16 digit angka" value="${val(r.kk)}"></label>
     <label class="field">Tanggal lahir<input name="birthDate" type="date" value="${val(String(r.birth_date || '').slice(0, 10))}"></label>
     <label class="field">Jenis kelamin<select name="gender">${[['', 'Tidak diisi'], ['LAKI_LAKI', 'Laki-laki'], ['PEREMPUAN', 'Perempuan'], ['LAINNYA', 'Lainnya']].map(([v, l]) => `<option value="${v}" ${r.gender === v || (!r.gender && !v) ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-    <label class="field">Telepon<input name="phone" inputmode="tel" value="${val(r.phone)}"></label>
+    <label class="field">Telepon Utama<input name="phone" inputmode="tel" value="${val(r.phone)}"></label>
+    <label class="field">Telepon Darurat (Kerabat)<input name="emergencyPhone" inputmode="tel" placeholder="mis. 081234..." value="${val(r.emergency_phone)}"></label>
     <label class="field wide">Alamat<input name="address" value="${val(r.address)}"></label>
-    <label class="field">Latitude<input name="latitude" type="number" step="any" value="${val(r.latitude)}"></label>
-    <label class="field">Longitude<input name="longitude" type="number" step="any" value="${val(r.longitude)}"></label>
-    <fieldset class="wide"><legend>Kelompok rentan</legend><div class="checks">${types.map(t => `<label class="check"><input type="checkbox" name="vulnerability" value="${esc(t.code)}" ${has(t.code) ? 'checked' : ''}><span>${esc(t.name)}<small>${esc(t.category)}</small></span></label>`).join('')}</div></fieldset>
+    <div class="field wide" style="display:flex;flex-direction:column;gap:6px;">
+      <span>Tentukan Lokasi Rumah (Peta)</span>
+      <div style="display:flex;gap:8px;"><input type="text" id="rSearch" placeholder="Cari nama jalan / desa" style="flex:1"><button type="button" class="btn outline sm" id="rBtnSearch">Cari</button></div>
+      <div id="${mapId}" class="map-box" style="height:240px;border-radius:12px;z-index:1"></div>
+      <div style="display:flex;gap:10px;margin-top:4px;">
+        <input name="latitude" id="rModalLatEdit" type="number" step="any" required value="${val(r.latitude)}" placeholder="Latitude" readonly style="flex:1;background:#f5f7f5">
+        <input name="longitude" id="rModalLngEdit" type="number" step="any" required value="${val(r.longitude)}" placeholder="Longitude" readonly style="flex:1;background:#f5f7f5">
+      </div>
+    </div>
+    <fieldset class="wide"><legend>Kelompok rentan</legend><div class="checks">${types.map(t => `<label class="check"><input type="checkbox" name="vulnerability" value="${esc(t.code)}" ${has(t.code) ? 'checked' : ''}><span>${esc(t.name)}<small>${esc(t.category)}</small></span></label>`).join('')}<label class="check"><input type="checkbox" name="vulnerability" value="LAINNYA" ${has('LAINNYA') ? 'checked' : ''}><span>Lainnya<small>Kondisi medis khusus / Catatan khusus</small></span></label></div></fieldset>
     <label class="field wide">Kemampuan evakuasi mandiri<select name="evacuationAbility">${[['', 'Belum dinilai'], ['MANDIRI', 'Dapat mengungsi sendiri'], ['PERLU_BANTUAN', 'Perlu bantuan mengungsi'], ['TIDAK_BISA_SENDIRI', 'Tidak bisa mengungsi sendiri']].map(([v, l]) => `<option value="${v}" ${(r.evacuation_ability || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     <label class="check wide"><input type="checkbox" name="timeCriticalMedical" ${r.time_critical_medical ? 'checked' : ''}><span>Kebutuhan medis yang tidak bisa ditunda</span></label>
     <label class="check wide"><input type="checkbox" name="livesAlone" ${r.lives_alone ? 'checked' : ''}><span>Tinggal sendiri</span></label>
@@ -1172,7 +1308,48 @@ function residentEditModal(m) {
     <label class="field">Catatan komunikasi<textarea name="communicationNotes">${val(r.communication_notes)}</textarea></label>
     <label class="field">Kondisi medis relevan<textarea name="medicalNotes">${val(r.medical_notes)}</textarea></label>
     <label class="field">Kebutuhan saat evakuasi<textarea name="evacuationNotes">${val(r.evacuation_notes)}</textarea></label></form>`;
-  return modalShell({ title: 'Ubah data warga', sub: r.full_name, body, wide: true, foot: `<button class="btn outline" data-action="close-modal">Batal</button><button class="btn primary" type="submit" form="modalForm">Simpan perubahan</button>` });
+  
+  const shell = modalShell({ title: 'Ubah data warga', sub: 'Gunakan tombol Cari untuk memindahkan titik secara cepat.', body, wide: true, foot: `<button class="btn outline" data-action="close-modal">Batal</button><button class="btn primary" type="submit" form="modalForm">Simpan perubahan</button>` });
+  
+  setTimeout(() => {
+    const el = document.getElementById(mapId);
+    if (!el || !window.L) return;
+    const v = D.villages[0] || {};
+    const lat0 = Number(r.latitude || v.latitude || -6.2);
+    const lng0 = Number(r.longitude || v.longitude || 106.8);
+    const map = L.map(el).setView([lat0, lng0], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+    const latI = document.getElementById('rModalLatEdit'), lngI = document.getElementById('rModalLngEdit');
+    let marker = (latI.value && lngI.value) ? L.marker([Number(latI.value), Number(lngI.value)]).addTo(map) : null;
+    map.on('click', e => {
+      if (marker) map.removeLayer(marker);
+      marker = L.marker(e.latlng).addTo(map);
+      latI.value = e.latlng.lat.toFixed(6);
+      lngI.value = e.latlng.lng.toFixed(6);
+    });
+    const searchBtn = document.getElementById('rBtnSearch');
+    if(searchBtn) {
+      searchBtn.onclick = async () => {
+        const q = document.getElementById('rSearch').value;
+        if(!q) return;
+        searchBtn.textContent = '...';
+        try {
+          const rData = await fetch('https://nominatim.openstreetmap.org/search?format=json&q='+encodeURIComponent(q));
+          const data = await rData.json();
+          if(data && data.length > 0) {
+            const lat = Number(data[0].lat), lon = Number(data[0].lon);
+            map.setView([lat, lon], 16);
+            if (marker) map.removeLayer(marker);
+            marker = L.marker([lat, lon]).addTo(map);
+            latI.value = lat.toFixed(6);
+            lngI.value = lon.toFixed(6);
+          } else { alert('Lokasi tidak ditemukan'); }
+        } catch {}
+        searchBtn.textContent = 'Cari';
+      };
+    }
+  }, 100);
+  return shell;
 }
 function waterModal(op) {
   return modalShell({ title: 'Perbarui tinggi air', sub: `${op.disasterType} · ${op.areaLabel}`,
@@ -1190,7 +1367,7 @@ function renderModal() {
   if (state.modalMap) { try { state.modalMap.stop(); state.modalMap.remove(); } catch { /* sudah dilepas */ } state.modalMap = null; }
   if (!m) { root.innerHTML = ''; return; }
   const op = D.operations.find(o => o.id === m.id);
-  const html = m.type === 'resident' ? residentModal() : m.type === 'account' ? accountModal() : m.type === 'shelter' ? shelterModal(m.id) : m.type === 'device-new' ? deviceNewModal() : m.type === 'account-edit' ? accountEditModal(m.id) : m.type === 'dispatch' ? dispatchModal(m.id) : m.type === 'resident-edit' ? residentEditModal(m) : m.type === 'device-key' ? deviceKeyModal() : m.type === 'device-dist' ? deviceDistModal(m.id) : m.type === 'ticket-resolve' ? ticketResolveModal(m.id) : m.type === 'rules-activate' ? rulesActivateModal(m.id) : m.type === 'sos' ? sosModal(m) : m.type === 'route' ? routeModal(m) : m.type === 'village-head' ? villageHeadModal(m.id) : m.type === 'alarm-confirm' ? alarmConfirmModal(m.payload) : m.type === 'emergency' ? emergencyModal()
+  const html = m.type === 'resident' ? residentModal() : m.type === 'account' ? accountModal() : m.type === 'shelter' ? shelterModal(m.id) : m.type === 'device-new' ? deviceNewModal() : m.type === 'account-edit' ? accountEditModal(m.id) : m.type === 'dispatch' ? dispatchModal(m.id) : m.type === 'resident-edit' ? residentEditModal(m) : m.type === 'device-key' ? deviceKeyModal() : m.type === 'device-dist' ? deviceDistModal(m.id) : m.type === 'device-assign' ? deviceAssignModal(m.id) : m.type === 'ticket-resolve' ? ticketResolveModal(m.id) : m.type === 'rules-activate' ? rulesActivateModal(m.id) : m.type === 'sos' ? sosModal(m) : m.type === 'route' ? routeModal(m) : m.type === 'village-head' ? villageHeadModal(m.id) : m.type === 'alarm-confirm' ? alarmConfirmModal(m.payload) : m.type === 'emergency' ? emergencyModal()
     : m.type === 'water' && op ? waterModal(op) : m.type === 'close-op' && op ? closeOpModal(op) : m.type === 'confirm' ? confirmModal(m) : '';
   root.innerHTML = html;
   const form = $('#modalForm', root);
@@ -1287,6 +1464,14 @@ const ACTIONS = {
       message: `Nonaktifkan <b>${esc(el.dataset.name)}</b>? Datanya disembunyikan dan kalungnya dilepas, riwayat tetap tersimpan.`,
       confirmLabel: 'Nonaktifkan', danger: true,
       run: () => run(() => JagaApi.deleteResident(el.dataset.id), 'Warga dinonaktifkan')
+    });
+  },
+  'device-unbind'(el) {
+    askConfirm({
+      title: 'Lepas Kalung?', sub: 'Data warga tidak akan dihapus',
+      message: `Lepas kalung dari warga ini? Kalung akan dikembalikan ke stok desa.`,
+      confirmLabel: 'Lepas', danger: true,
+      run: () => run(() => JagaApi.updateResident(el.dataset.id, { deviceId: null }), 'Kalung berhasil dilepas')
     });
   },
   'track-start'() { const select = $('#trackTeam'); if (select?.value) startTracking(select.value); },
@@ -1388,6 +1573,9 @@ const FORMS = {
   },
   'device-dist'(form) {
     return run(() => JagaApi.distributeDevice(form.dataset.id, new FormData(form).get('villageId')), 'Kalung dipindahkan').then(ok => { if (ok) closeModal(); });
+  },
+  'device-assign'(form) {
+    return run(() => JagaApi.updateResident(form.dataset.id, { deviceId: new FormData(form).get('deviceId') }), 'Kalung dipasangkan').then(ok => { if (ok) closeModal(); });
   },
   'village-head'(form) {
     const d = new FormData(form);

@@ -27,7 +27,8 @@ const CONTENT_TYPES: Record<string, string> = {
   ".webp": "image/webp",
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
-  ".txt": "text/plain; charset=utf-8"
+  ".txt": "text/plain; charset=utf-8",
+  ".glb": "model/gltf-binary"
 };
 
 /**
@@ -40,6 +41,7 @@ const STATIC_FILES: Record<string, string> = {
   "/": "landing.html",
   "/landing.css": "landing.css",
   "/landing.js": "landing.js",
+  "/jaga3d.js": "jaga3d.js",
   "/app": "index.html",
   "/index.html": "index.html",
   "/login": "login.html",
@@ -109,10 +111,10 @@ const serveStatic = async (res: ServerResponse, pathname: string): Promise<boole
 const inariskHost = (() => { try { return config.inariskWmsUrl ? new URL(config.inariskWmsUrl).origin : ""; } catch { return ""; } })();
 const CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ajax.googleapis.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   `img-src 'self' data: https://*.tile.openstreetmap.org https://tile.openstreetmap.org https://server.arcgisonline.com${inariskHost ? ` ${inariskHost}` : ""}`,
-  `connect-src 'self' https://router.project-osrm.org https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://server.arcgisonline.com`,
+  `connect-src 'self' https://router.project-osrm.org https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://server.arcgisonline.com https://api.open-meteo.com https://cdn.jsdelivr.net`,
   "font-src 'self' data: https://fonts.gstatic.com",
   "object-src 'none'",
   "base-uri 'self'",
