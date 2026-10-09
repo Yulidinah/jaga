@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "id.jaga.app"
-    compileSdk = 35
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "id.jaga.app"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
         // Alamat backend: emulator Android mengakses komputer host lewat 10.0.2.2.
