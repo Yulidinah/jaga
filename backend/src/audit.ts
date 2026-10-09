@@ -94,6 +94,14 @@ export async function notify(store: Store, input: NotifyInput): Promise<NotifyRe
   }
 
   if (provider === "in-app") return { queued: true, provider, detail: "Notifikasi dalam aplikasi dibuat.", notificationId };
+  
+  if (provider === "fcm") {
+    // Mock simulasi FCM v1 untuk kompetisi
+    console.log(`[fcm-mock] MENGIRIM PUSH NOTIFIKASI ke ${input.destination}: ${input.templateCode} - ${input.body}`);
+    await store.update("notifications", notificationId, { status: "SENT", sent_at: nowIso() }).catch(() => undefined);
+    return { queued: true, provider, detail: "Terkirim melalui FCM (Mock Simulasi Kompetisi).", notificationId };
+  }
+
   if (provider !== "twilio" || !config.twilioAuthToken || !config.twilioAccountSid) {
     return {
       queued: true,

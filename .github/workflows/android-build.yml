@@ -1,0 +1,38 @@
+name: Android Build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+        # Jika gradlew tidak ada di repo, GitHub akan menggunakan gradle wrapper bawaan sistem atau gagal. 
+        # Idealnya gradlew harus di-push ke GitHub.
+        continue-on-error: true
+
+      - name: Build APK
+        working-directory: ./android
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: JAGA-Android-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk

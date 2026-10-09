@@ -32,6 +32,7 @@ interface Subscriber {
   villageIds: string[] | null;
   role: string;
   identity: string;
+  expiresAt: number;
 }
 
 const subscribers = new Set<Subscriber>();
@@ -48,12 +49,21 @@ export function addSubscriber(res: ServerResponse, session: Session): () => void
     res,
     villageIds: session.villageIds,
     role: session.role,
-    identity: session.profileId
+    identity: session.profileId,
+    expiresAt: session.expiresAt
   };
   subscribers.add(subscriber);
   if (!beat) {
     beat = setInterval(() => {
-      for (const item of subscribers) item.res.write(`: ping ${Date.now()}\n\n`);
+      const now = Date.now();
+      for (const item of subscribers) {
+        if (now > item.expiresAt) {
+          try { item.res.end(); } catch { /* ignore */ }
+          subscribers.delete(item);
+        } else {
+          item.res.write(`: ping ${now}\n\n`);
+        }
+      }
     }, 25_000);
     beat.unref?.();
   }
