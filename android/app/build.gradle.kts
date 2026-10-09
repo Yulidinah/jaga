@@ -14,9 +14,8 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
-        // Alamat backend: emulator Android mengakses komputer host lewat 10.0.2.2.
-        // Untuk perangkat fisik/produksi, ganti dengan alamat HTTPS backend.
-        buildConfigField("String", "API_BASE", "\"http://10.0.2.2:3000/api\"")
+        // Alamat backend: menggunakan IP laptop di jaringan Wi-Fi agar bisa diakses dari HP fisik.
+        buildConfigField("String", "API_BASE", "\"http://192.168.110.165:3000/api\"")
     }
 
     buildFeatures {
