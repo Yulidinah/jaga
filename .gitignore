@@ -17,6 +17,13 @@ firmware/**/build/
 firmware/**/.vscode/
 *.bin
 *.elf
+
+# Berkas internal kompetisi (tidak untuk publik)
+docs/
+scripts/uji/
+scripts/demo-device-keys.mjs
+android/gradle-8.10.2/
+android/gradle.zip
 *.hex
 *.uf2
 
