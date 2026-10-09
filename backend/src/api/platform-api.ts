@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { actorOf, record } from "../audit.js";
 import { assertVillageAccess, requireRole, scopeIds } from "../auth.js";
 import { config } from "../config.js";
-import { badRequest, clean, indexBy, isOnline, isUuid, notFound, nowIso, oneOf, optionalText, text } from "../lib.js";
+import { badRequest, clean, forbidden, indexBy, isOnline, isUuid, notFound, nowIso, oneOf, optionalText, text } from "../lib.js";
 import { publish } from "../realtime.js";
 import { param, type Ctx } from "../router.js";
 import type { Store } from "../store.js";
@@ -124,7 +124,7 @@ export async function governance(ctx: Ctx) {
 /* ============================================================ Pengumuman Pusat (FR-1.7) */
 
 const shapeAnnouncement = (row: Row) => ({
-  id: row.id, title: row.title, body: row.body, priority: row.priority, createdAt: row.created_at, expiresAt: row.expires_at ?? null, createdBy: row.created_by_name ?? null,
+  id: row.id, sourceRole: row.source_role ?? "PUSAT", title: row.title, body: row.body, priority: row.priority, createdAt: row.created_at, expiresAt: row.expires_at ?? null, createdBy: row.created_by_name ?? null,
   villageIds: Array.isArray(row.village_ids) && (row.village_ids as unknown[]).length ? (row.village_ids as unknown[]).map(String) : null
 });
 
@@ -139,11 +139,17 @@ export async function listAnnouncements(ctx: Ctx) {
 }
 
 export async function createAnnouncement(ctx: Ctx) {
-  requireRole(ctx.session, ["PUSAT"], "Hanya JAGA Pusat yang dapat mengirim pengumuman");
+  requireRole(ctx.session, ["PUSAT", "DESA"], "Hanya JAGA Pusat dan JAGA Desa yang dapat mengirim pengumuman");
+  const fromDesa = ctx.session.role === "DESA";
   const hours = Number(ctx.body.expiresInHours ?? 72);
   if (!Number.isFinite(hours) || hours < 1 || hours > 24 * 90) throw badRequest("expiresInHours harus 1 sampai 2160");
-  const rawIds = Array.isArray(ctx.body.villageIds) ? ctx.body.villageIds : [];
+  // Pesan Desa selalu ditujukan ke JAGA Rescue di desanya sendiri; tujuan lain diabaikan.
+  const rawIds = fromDesa ? [ctx.session.villageIds?.[0] ?? ""] : Array.isArray(ctx.body.villageIds) ? ctx.body.villageIds : [];
   const villageIds = Array.from(new Set(rawIds.map(clean).filter(Boolean)));
+  if (fromDesa) {
+    if (!villageIds.length) throw badRequest("Akun Desa belum terhubung ke desa");
+    assertVillageAccess(ctx.session, villageIds[0]);
+  }
   if (villageIds.length && villageIds.some(id => !isUuid(id))) throw badRequest("villageIds harus berisi ID desa berbentuk UUID");
   if (villageIds.length > 200) throw badRequest("Maksimal 200 desa per pengumuman");
   if (villageIds.length) {
@@ -158,17 +164,23 @@ export async function createAnnouncement(ctx: Ctx) {
     created_by_name: ctx.session.displayName ?? null,
     created_at: nowIso(),
     expires_at: new Date(Date.now() + hours * 3_600_000).toISOString(),
-    village_ids: villageIds.length ? villageIds : null
+    village_ids: villageIds.length ? villageIds : null,
+    source_role: fromDesa ? "DESA" : "PUSAT"
   });
-  await record(ctx.store, { actorId: actorOf(ctx.session), action: "ANNOUNCEMENT_CREATE", entityType: "announcements", entityId: String(row.id), summary: `Pengumuman: ${row.title}${villageIds.length ? ` untuk ${villageIds.length} desa` : " untuk semua desa"}` });
-  publish("announcement.created", { id: row.id, title: row.title, priority: row.priority });
+  await record(ctx.store, { actorId: actorOf(ctx.session), action: "ANNOUNCEMENT_CREATE", entityType: "announcements", entityId: String(row.id), summary: fromDesa ? `Pesan Desa untuk Rescue: ${row.title}` : `Pengumuman: ${row.title}${villageIds.length ? ` untuk ${villageIds.length} desa` : " untuk semua desa"}` });
+  publish("announcement.created", { id: row.id, title: row.title, priority: row.priority, sourceRole: row.source_role }, fromDesa ? villageIds[0] : undefined);
   return shapeAnnouncement(row);
 }
 
 export async function deleteAnnouncement(ctx: Ctx) {
-  requireRole(ctx.session, ["PUSAT"]);
+  requireRole(ctx.session, ["PUSAT", "DESA"]);
   const row = await ctx.store.one("announcements", { eq: { id: param(ctx, "id") } });
   if (!row) throw notFound("Pengumuman tidak ditemukan");
+  if (ctx.session.role === "DESA") {
+    // Desa hanya menghapus pesannya sendiri, bukan pengumuman Pusat.
+    if (row.source_role !== "DESA") throw forbidden("Pengumuman Pusat hanya dapat dihapus JAGA Pusat");
+    assertVillageAccess(ctx.session, (row.village_ids as unknown[] | null)?.[0]);
+  }
   await ctx.store.remove("announcements", String(row.id));
   await record(ctx.store, { actorId: actorOf(ctx.session), action: "ANNOUNCEMENT_DELETE", entityType: "announcements", entityId: String(row.id), summary: `Menghapus pengumuman ${row.title}` });
   return { id: row.id, deleted: true };

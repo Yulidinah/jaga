@@ -65,12 +65,12 @@ const ROLES = {
   desa: {
     label: 'JAGA Desa', home: 'beranda', nav: 'sidebar',
     pages: [['beranda', 'Beranda', 'home'], ['warga', 'Warga', 'users'], ['alarm', 'Alarm & operasi', 'bell'], ['status', 'Status warga', 'check'],
-      ['kalung', 'Kalung', 'device'], ['kejadian', 'Kejadian', 'alert'], ['titik', 'Titik evakuasi', 'shield'], ['kendala', 'Kendala teknis', 'info'], ['peta', 'Peta', 'map']]
+      ['kalung', 'Kalung', 'device'], ['kejadian', 'Kejadian', 'alert'], ['titik', 'Titik evakuasi', 'shield'], ['pengumuman', 'Pengumuman', 'bell'], ['kendala', 'Kendala teknis', 'info'], ['peta', 'Peta', 'map']]
   },
   rescue: {
     label: 'JAGA Rescue', home: 'prioritas', nav: 'sidebar',
-    pages: [['prioritas', 'Prioritas', 'activity'], ['operasi', 'Operasi', 'signal'], ['tugas', 'Tugas lapangan', 'route'],
-      ['tim', 'Tim', 'truck'], ['laporan', 'Laporan operasi', 'file'], ['kendala', 'Kendala teknis', 'info'], ['peta', 'Peta', 'map']]
+    pages: [['prioritas', 'Prioritas', 'activity'], ['operasi', 'Operasi', 'signal'],
+      ['tim', 'Tim', 'truck'], ['laporan', 'Laporan operasi', 'file'], ['pengumuman', 'Pengumuman', 'bell'], ['kendala', 'Kendala teknis', 'info'], ['peta', 'Peta', 'map']]
   }
 };
 
@@ -78,11 +78,11 @@ const ROLES = {
 const state = {
   role: 'desa', session: null, loading: true, error: '', pendingRender: false, maps: [],
   data: {
-    overview: null, safety: null, map: null, villages: [], vulnTypes: [], incidents: [], alerts: [], notifications: [],
+    overview: null, safety: null, map: null, weatherByVillage: [], villages: [], vulnTypes: [], incidents: [], alerts: [], notifications: [],
     operations: [], shelters: [], tickets: [], board: null, announcements: [], reports: [], villageStat: null, platformInfo: null, governanceInfo: null, coverage: {}, draftRules: null, draftThresholds: [], residents: [], devices: [], teams: [], rosters: {}, accounts: [], ruleSets: [], activeRules: null, thresholds: [], audit: [], opsAll: []
   },
  ui: {
-    pusat: { province: '', village: '', deviceLoc: 'all', ticketFilter: 'open', ruleEditing: false, announceTarget: 'ALL', announceVillages: [], announceRegency: '', announceDraft: { title: '', body: '', priority: 'INFO', expiresInHours: '72' } }, lastKey: null, tracking: null, tileProgress: null,
+    pusat: { province: '', village: '', deviceLoc: 'all', ticketFilter: 'open', ruleEditing: false, announceTarget: 'ALL', announceVillages: [], announceDraft: { title: '', body: '', priority: 'INFO', expiresInHours: '72' } }, lastKey: null, tracking: null, tileProgress: null,
     menu: null, modal: null, residentSearch: '', residentFilter: 'all', incidentFilter: 'active', auditSearch: '',
     alarm: { severity: 'SIAGA', target: 'ALL', message: '', waterLevelCm: '', note: '' }
   }
@@ -175,7 +175,7 @@ function viewPusatRingkasan() {
       ${kpi({ icon: 'alert', label: 'Kendala teknis', value: openTickets.length, hint: `${c.ticketsInProgress ?? 0} sedang diproses`, tone })}
       ${kpi({ icon: 'signal', label: 'Operasi aktif', value: ops.length, hint: 'Informasi dari Desa dan Rescue', tone: ops.length ? 'orange' : '' })}
     </div>
-    ${D.weather?.current ? `<div class="card" style="background:var(--green-50); border:1px solid var(--green-200); padding:16px; margin-bottom:16px;"><b>Cuaca Terkini (Open-Meteo)</b><div style="margin-top:8px; display:flex; gap:16px;"><div class="fact"><small>Suhu</small><b>${D.weather.current.temperature_2m}°C</b></div><div class="fact"><small>Curah Hujan</small><b>${D.weather.current.precipitation} mm</b></div></div></div>` : ''}
+    ${D.weatherByVillage?.length ? card({ title: 'Cuaca wilayah', sub: 'Kondisi terkini di setiap desa dalam cakupan Pusat', body: `<div class="weather-grid">${D.weatherByVillage.map(w => `<div class="weather-item"><b>${esc(w.name)}</b><small>${esc([w.regency, w.province].filter(Boolean).join(', '))}</small><span><strong>${esc(w.temperature)}°C</strong><em>Hujan ${esc(w.precipitation)} mm</em></span></div>`).join('')}</div>` }) : ''}
     <div class="grid two">
       ${card({ title: 'Kendala teknis menunggu', sub: 'Hanya dapat diselesaikan JAGA Pusat', actions: `<a class="btn outline sm" href="#/kendala">Lihat semua</a>`, flush: true, body: openTickets.length ? `<div class="list">${openTickets.slice(0, 5).map(t => `<div class="row-item"><span class="row-icon ${t.priority === 'TINGGI' ? 'red' : t.priority === 'SEDANG' ? 'orange' : ''}">${icon('alert')}</span><div class="grow"><b>${esc(t.title)}</b><small>${esc(t.villageName || t.reporterName || 'Rescue')} · ${esc(TICKET_CAT[t.category] || t.category)} · ${esc(timeAgo(t.createdAt))}</small></div>${ticketStatusBadge(t.status)}</div>`).join('')}</div>` : empty('Tidak ada kendala', 'Semua laporan dari Desa dan Rescue sudah ditangani.', 'check') })}
       ${card({ title: 'Persediaan kalung', sub: 'Dari gudang Pusat ke desa', actions: `<a class="btn outline sm" href="#/kalung">Kelola</a>`, body: `<div class="op-facts" style="padding:0"><div class="fact"><small>Gudang Pusat</small><b>${c.devicesWarehouse ?? 0}</b></div><div class="fact"><small>Stok di desa</small><b>${c.devicesInVillageStock ?? 0}</b></div><div class="fact"><small>Terdaftar</small><b>${c.devicesRegistered ?? 0}</b></div></div>` })}
@@ -192,11 +192,11 @@ function viewPusatRingkasan() {
 function villageStatusTable() {
   const rows = D.villageStat?.villages || [];
   if (!rows.length) return empty('Belum ada data status desa', '', 'building');
-  return tableWrap(['Desa', 'Status', 'Sinkron terakhir', 'Gateway', 'Kalung'], rows.filter(v => !/fixture/i.test(v.name)).map(v => `<tr>
+  return tableWrap(['Desa', 'Status', 'Sinkron terakhir', 'Penghubung desa', 'Kalung'], rows.filter(v => !/fixture/i.test(v.name)).map(v => `<tr>
     <td><b>${esc(v.name)}</b><small>${esc([v.regency, v.province].filter(Boolean).join(', '))}</small></td>
     <td>${badge(v.status === 'ACTIVE' ? 'Aktif' : 'Tidak aktif', v.status === 'ACTIVE' ? 'green' : 'red')}</td>
     <td>${v.lastSyncAt ? `${esc(timeAgo(v.lastSyncAt))}<small>${esc(dateTime(v.lastSyncAt))}</small>` : '<small>Belum pernah</small>'}</td>
-    <td>${v.gateways.online}/${v.gateways.total}</td><td>${v.devices.online}/${v.devices.total}</td></tr>`));
+    <td>${v.gateways.online}/${v.gateways.total}<small>gateway online/terdaftar</small></td><td>${v.devices.online}/${v.devices.total}</td></tr>`));
 }
 function outcomeFacts(o) {
   if (!o) return empty('Belum ada data', '', 'check');
@@ -214,7 +214,7 @@ function operationsTable(ops) {
   return tableWrap(['Desa', 'Tingkat', 'Area', 'Tinggi air', 'Dibuka'], ops.map(op => `<tr>
     <td><b>${esc(op.villageName || villageName(op.villageId))}</b><small>${esc(op.disasterType)}</small></td>
     <td>${severityBadge(op.severity)}</td><td>${esc(op.areaLabel)}</td>
-    <td>${op.waterLevelCm != null ? `${op.waterLevelCm} cm` : '<small>Belum dilaporkan</small>'}</td>
+    <td>${op.waterLevelCm != null ? `${op.waterLevelCm} cm<small>diperbarui ${esc(timeAgo(op.updatedAt))}</small>` : '<small>Belum dilaporkan</small>'}${op.note ? `<small>${esc(op.note)}</small>` : ''}</td>
     <td>${esc(timeAgo(op.openedAt))}<small>${esc(dateTime(op.openedAt))}</small></td></tr>`));
 }
 
@@ -225,14 +225,15 @@ function viewPusatDesa() {
     <small>${rows.length} desa${f.province ? ` di ${esc(f.province)}` : ' di seluruh provinsi'}</small></div>`;
 const body = rows.length ? tableWrap(['Desa', 'Warga', 'Kalung online', 'Baterai', 'Sinyal terakhir', 'Alarm', 'Kejadian', 'Status', 'Aksi'], rows.map(s => {
     const vs = (D.villageStat?.villages || []).find(v => v.villageId === s.village.id);
-    const status = s.operation ? badge('Operasi aktif', 'red') : s.devices && s.online < s.devices ? badge('Perlu perhatian', 'orange') : badge('Normal', 'green');
+    const op = D.operations.find(o => o.villageId === s.village.id);
+    const status = op ? `${badge('Operasi aktif', 'red')}<small>${esc((SEVERITY[op.severity] || [op.severity])[0])}${op.waterLevelCm != null ? ` · air ${op.waterLevelCm} cm` : ''}</small>` : s.devices && s.online < s.devices ? badge('Perlu perhatian', 'orange') : badge('Normal', 'green');
     const head = s.village.headName ? `<small><b>Kades ${esc(s.village.headName)}</b>${s.village.headPhone ? ` · ${esc(s.village.headPhone)}` : ''}</small>` : '<small>Kades belum diisi</small>';
     return `<tr><td><b>${esc(s.village.name)}</b><small>${esc([s.village.regency, s.village.province].filter(Boolean).join(', '))}${s.village.population ? ` · ${s.village.population.toLocaleString('id-ID')} jiwa` : ''}</small>${head}</td>
       <td>${s.residents}</td><td>${s.online}/${s.devices}</td><td>${s.lowBattery ? badge(`${s.lowBattery} kalung`, 'orange') : '—'}</td>
       <td>${esc(timeAgo(vs?.lastSyncAt || s.lastSeen))}</td><td>${vs ? tierBadge(vs.tier) : '—'}</td><td>${s.incidents ? badge(`${s.incidents} aktif`, 'red') : '—'}</td><td>${status}</td>
       <td class="row-actions"><button class="btn outline sm" data-action="open-modal" data-modal="village-head" data-id="${esc(s.village.id)}">Kontak</button></td></tr>`;
   })) : empty('Tidak ada desa pada filter ini', 'Pilih provinsi lain.', 'building');
-  return `${pageHead('Monitoring desa', 'Status setiap desa: warga terdaftar, kondisi kalung, operasi berjalan, dan kontak kepala desa (dikelola JAGA Pusat).')}
+  return `${pageHead('Monitoring desa', 'Status warga, kalung, operasi, dan kontak kepala desa di setiap wilayah.')}
     <div class="stack">
     ${card({ title: 'Peta wilayah', sub: 'Titik warga, zona bahaya, titik kumpul, dan tim', flush: true, extra: 'has-legend', body: `${filterBar}<div class="map-box" data-map="overview"></div>${mapLegend('overview')}` })}
     ${card({ title: 'Seluruh desa', sub: `${rows.length} desa dalam cakupan`, flush: true, body })}</div>`;
@@ -293,7 +294,7 @@ function viewPusatAturan() {
   const ruleAction = draft
     ? `<button class="btn primary" data-action="rules-edit">${icon('sliders')} ${state.ui.pusat.ruleEditing ? 'Tutup edit' : 'Edit aturan'}</button>`
     : set ? `<button class="btn primary" data-action="rules-revise" data-id="${esc(set.id)}">${icon('sliders')} Revisi aturan</button>` : '';
-  const head = pageHead('Aturan prioritas penyelamatan', 'Aturan aktif tidak diubah langsung. Klik Edit aturan untuk membuka formulir draf; formulir menutup sendiri setelah draf disimpan atau diaktifkan.', ruleAction);
+  const head = pageHead('Aturan prioritas penyelamatan', 'Aturan aktif tetap digunakan saat Anda menyiapkan draf perubahan. Tinjau lalu aktifkan draf setelah disetujui.', ruleAction);
   if (!set) return `${head}${card({ title: 'Belum ada aturan aktif', body: empty('Belum ada rule set berstatus aktif', 'Publikasikan satu rule set agar prioritas dapat dihitung.', 'sliders') })}`;
   const thresholds = D.thresholds.slice().sort((a, b) => a.minScore - b.minScore);
   const rules = (set.rules || []).slice().sort((a, b) => a.displayOrder - b.displayOrder);
@@ -342,11 +343,18 @@ function viewPusatAkun() {
     ${card({ title: `${D.accounts.length} akun`, flush: true, body })}`;
 }
 
+function reportSummary(text) {
+  const value = String(text || '');
+  if (value.length <= 90) return esc(value);
+  const splitAt = value.lastIndexOf(' ', 90);
+  const cut = splitAt > 40 ? splitAt : 90;
+  return `${esc(value.slice(0, cut))}…<details class="report-more"><summary>Tampilkan lanjutan</summary><div>${esc(value.slice(cut).trimStart())}</div></details>`;
+}
 function reportsTable() {
   if (!D.reports.length) return empty('Belum ada laporan pasca-operasi', 'Tim Rescue mengirimnya setelah operasi selesai.', 'file');
   return tableWrap(['Operasi', 'Tim', 'Ringkasan', 'Hasil', 'Dikirim'], D.reports.map(r => `<tr>
     <td><b>${esc(r.villageName || '—')}</b><small>${esc(r.operationOpenedAt ? dateTime(r.operationOpenedAt) : '')}</small></td>
-    <td>${esc(r.organizationName || '—')}<small>${esc(r.teamName || r.authorName || '')}</small></td><td style="max-width:360px">${r.summary?.length > 90 ? `<details><summary style="cursor:pointer; color:var(--green-600); font-weight:600">${esc(r.summary.substring(0, 90))}... <span style="font-size:11px; margin-left:4px">(tampilkan)</span></summary><div style="margin-top:6px; color:var(--ink); font-weight:normal">${esc(r.summary)}</div></details>` : esc(r.summary)}</td>
+    <td>${esc(r.organizationName || '—')}<small>${esc(r.teamName || r.authorName || '')}</small></td><td style="max-width:360px">${reportSummary(r.summary)}</td>
     <td><small>Ditemukan ${r.foundCount} · Dievakuasi ${r.evacuatedCount} · Tidak ditemukan ${r.notFoundCount} · Tidak terjangkau ${r.unreachableCount}${r.distanceKm != null ? ` · ${r.distanceKm} km` : ''}</small></td>
     <td>${esc(dateTime(r.createdAt))}</td></tr>`));
 }
@@ -391,14 +399,19 @@ function viewPusatKalung() {
     <td>${badge({ ASSIGNED: 'Terpasang', STOCK: 'Stok', MAINTENANCE: 'Perawatan', LOST: 'Hilang', RETIRED: 'Dipensiunkan' }[d.status] || d.status, 'gray', true)}</td>
     <td class="row-actions">${d.residentId ? '<small>Terpasang pada warga</small>' : `<button class="btn outline sm" data-action="open-modal" data-modal="device-dist" data-id="${esc(d.id)}">Distribusikan</button>`}</td></tr>`)) : empty('Belum ada kalung', 'Daftarkan kalung ke gudang Pusat lalu distribusikan ke desa.', 'device');
   const seg = [['all', 'Semua'], ['gudang', 'Gudang Pusat'], ['desa', 'Di desa']];
+  const byVillage = D.villages.map(v => {
+    const devices = all.filter(d => d.villageId === v.id);
+    return { village: v, total: devices.length, stock: devices.filter(d => d.status === 'STOCK').length, installed: devices.filter(d => d.residentId).length };
+  }).filter(row => row.total);
   return `${pageHead('Kalung', 'Ketersediaan kalung bersumber dari Pusat: didaftarkan ke gudang, didistribusikan ke desa, lalu dipasang Desa pada warga.',
-    `<button class="btn primary" data-action="open-modal" data-modal="device-new">${icon('plus')} Daftarkan kalung</button>`)}
+    `<button class="btn outline" data-action="open-modal" data-modal="device-bulk">${icon('plus')} Stok banyak</button><button class="btn primary" data-action="open-modal" data-modal="device-new">${icon('plus')} Daftarkan kalung</button>`)}
     <div class="stack"><div class="kpis">
       ${kpi({ icon: 'device', label: 'Terdaftar', value: c.devicesRegistered ?? all.length, hint: 'Seluruh kalung JAGA' })}
       ${kpi({ icon: 'building', label: 'Gudang Pusat', value: c.devicesWarehouse ?? 0, hint: 'Siap didistribusikan', tone: 'blue' })}
       ${kpi({ icon: 'truck', label: 'Stok di desa', value: c.devicesInVillageStock ?? 0, hint: 'Menunggu dipasang Desa' })}
       ${kpi({ icon: 'signal', label: 'Aktif', value: `${c.devicesOnline ?? 0}/${c.devicesTotal ?? 0}`, hint: 'Terpasang dan online', tone: 'green' })}
     </div>
+    ${card({ title: 'Sebaran kalung per desa', sub: 'Jumlah yang sudah diterima setiap desa', flush: true, body: byVillage.length ? tableWrap(['Desa', 'Total', 'Siap dipasang', 'Sudah terpasang'], byVillage.map(row => `<tr><td><b>${esc(row.village.name)}</b><small>${esc(row.village.regency || row.village.province || '')}</small></td><td>${row.total}</td><td>${row.stock}</td><td>${row.installed}</td></tr>`)) : empty('Belum ada kalung di desa', 'Distribusikan stok dari gudang Pusat ke desa.', 'device') })}
     ${card({ title: `${rows.length} kalung`, flush: true, body: `<div class="toolbar"><div class="segmented">${seg.map(([v, l]) => `<button class="${f === v ? 'active' : ''}" data-action="device-loc" data-value="${v}">${l}</button>`).join('')}</div></div>${body}` })}
     </div>`;
 }
@@ -414,10 +427,22 @@ function viewPusatKendala() {
     <td>${badge({ TINGGI: 'Tinggi', SEDANG: 'Sedang', RENDAH: 'Rendah' }[t.priority] || t.priority, t.priority === 'TINGGI' ? 'red' : t.priority === 'SEDANG' ? 'orange' : 'gray')}</td>
     <td>${ticketStatusBadge(t.status)}</td><td>${esc(timeAgo(t.createdAt))}<small>${esc(dateTime(t.createdAt))}</small></td>
     <td class="row-actions">${t.status === 'OPEN' ? `<button class="btn outline sm" data-action="ticket-status" data-id="${esc(t.id)}" data-status="IN_PROGRESS">Mulai tangani</button> ` : ''}${t.status !== 'RESOLVED' ? `<button class="btn primary sm" data-action="open-modal" data-modal="ticket-resolve" data-id="${esc(t.id)}">Selesaikan</button>` : ''}</td></tr>`)) : empty('Tidak ada kendala pada filter ini', 'Laporan dari Desa dan Rescue akan muncul di sini.', 'check');
-  return `${pageHead('Kendala teknis', 'Hal teknis yang tidak dapat diselesaikan Desa atau Rescue dan hanya dapat ditangani JAGA Pusat. Penanganan Siaga dan insiden tetap di Desa dan Rescue.')}
+  return `${pageHead('Kendala teknis', 'Laporan seperti kalung, gateway, akun, atau data wilayah yang memerlukan bantuan JAGA Pusat. Kejadian darurat tetap ditangani oleh Desa dan Rescue.')}
     ${card({ title: `${rows.length} kendala`, flush: true, body: `<div class="toolbar"><div class="segmented">${seg.map(([v, l]) => `<button class="${f === v ? 'active' : ''}" data-action="ticket-filter" data-value="${v}">${l} ${count(v)}</button>`).join('')}</div></div>${body}` })}`;
 }
 
+function announcementRow(a, canDelete) {
+  const fromDesa = a.sourceRole === 'DESA';
+  const origin = fromDesa ? `Dari JAGA Desa ${villageName(a.villageIds?.[0])}` : 'Dari JAGA Pusat';
+  const audience = fromDesa ? badge('Untuk Rescue', 'blue', true) : a.villageIds?.length ? badge(`${a.villageIds.length} desa`, 'blue', true) : badge('Semua desa', 'green', true);
+  return `<div class="row-item"><span class="row-icon ${a.priority === 'PENTING' ? 'orange' : ''}">${icon('bell')}</span><div class="grow"><b>${esc(a.title)}</b><small>${esc(a.body)}</small><small>${esc(origin)} · ${esc(timeAgo(a.createdAt))}${a.expiresAt ? ` · berlaku sampai ${esc(dateTime(a.expiresAt))}` : ''}</small></div>${audience}${a.priority === 'PENTING' ? badge('Penting', 'orange') : badge('Info', 'gray', true)}${canDelete ? `<button class="btn outline sm danger-text" data-action="announcement-delete" data-id="${esc(a.id)}">Hapus</button>` : ''}</div>`;
+}
+function announcementFields(f, placeholder) {
+  return `<label class="field wide">Judul<input name="title" data-keep="title" required minlength="3" maxlength="160" value="${esc(f.announceDraft.title)}" placeholder="${esc(placeholder)}"></label>
+    <label class="field wide">Isi<textarea name="body" data-keep="body" required minlength="3" maxlength="2000">${esc(f.announceDraft.body)}</textarea></label>
+    <div class="form-grid"><label class="field">Prioritas<select name="priority" data-keep="priority"><option value="INFO" ${f.announceDraft.priority === 'INFO' ? 'selected' : ''}>Informasi</option><option value="PENTING" ${f.announceDraft.priority === 'PENTING' ? 'selected' : ''}>Penting (tampil di banner)</option></select></label>
+      <label class="field">Berlaku (jam)<input name="expiresInHours" data-keep="expiresInHours" type="number" min="1" max="2160" value="${esc(f.announceDraft.expiresInHours)}"></label></div>`;
+}
 function viewPusatPengumuman() {
   const f = state.ui.pusat;
   const target = f.announceTarget;
@@ -425,28 +450,30 @@ function viewPusatPengumuman() {
   const targetField = `<div class="field wide"><b style="font-size:13px">Tujuan</b>
     <div class="segmented" style="margin-top:8px">
       <button type="button" class="${target === 'ALL' ? 'active' : ''}" data-bind-target="ALL">${icon('building')} Semua desa</button>
-
       <button type="button" class="${target === 'VILLAGES' ? 'active' : ''}" data-bind-target="VILLAGES">${icon('check')} Desa tertentu</button>
-    </div></div>`;
-  const regencyNames = [...new Set(villages.map(v => v.regency).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id'));
+    </div><small>Pengumuman diterima JAGA Desa dan JAGA Rescue di tujuan.</small></div>`;
   const targetPicker = target === 'VILLAGES'
     ? `<fieldset class="wide"><legend>Desa tujuan <small>${f.announceVillages.length} dipilih</small></legend><div class="checks" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">${villages.length ? villages.map(v => `<label class="check"><input type="checkbox" data-toggle-village="${esc(v.id)}" ${f.announceVillages.includes(v.id) ? 'checked' : ''}><span>${esc(v.name)}<small>${esc(v.regency || v.province || '')}${v.headName ? ` · Kades ${esc(v.headName)}` : ''}</small></span></label>`).join('') : '<small>Belum ada desa terdaftar.</small>'}</div></fieldset>`
-    : target === 'REGENCY'
-      ? `<fieldset class="wide"><legend>Kabupaten tujuan</legend><div class="form-grid"><label class="field">Kabupaten<select data-bind="pusat.announceRegency"><option value="">Pilih kabupaten…</option>${regencyNames.length ? regencyNames.map(r => `<option value="${esc(r)}" ${f.announceRegency === r ? 'selected' : ''}>${esc(r)}</option>`).join('') : '<option value="">Belum ada desa terdaftar</option>'}</select></label></div><small>Pengumuman dikirim ke <b>semua desa</b> di kabupaten tersebut.</small></fieldset>`
-      : '';
-  const targetLabel = target === 'ALL' ? 'Kirim ke semua desa dan Rescue' : target === 'REGENCY' ? 'Kirim ke semua desa se-Kabupaten' : `Kirim ke ${f.announceVillages.length} desa`;
+    : '';
+  const targetLabel = target === 'ALL' ? 'Kirim ke semua desa dan Rescue' : `Kirim ke ${f.announceVillages.length} desa`;
   const form = `<form data-form="announcement" class="card-body" style="display:grid;gap:16px">
-    <label class="field wide">Judul<input name="title" data-keep="title" required minlength="3" maxlength="160" value="${esc(f.announceDraft.title)}" placeholder="mis. Uji kesiapsiagaan kalung bulan ini"></label>
-    <label class="field wide">Isi pengumuman<textarea name="body" data-keep="body" required minlength="3" maxlength="2000" placeholder="Pesan untuk JAGA Desa dan JAGA Rescue di tujuan">${esc(f.announceDraft.body)}</textarea></label>
-    <div class="form-grid"><label class="field">Prioritas<select name="priority" data-keep="priority"><option value="INFO" ${f.announceDraft.priority === 'INFO' ? 'selected' : ''}>Informasi</option><option value="PENTING" ${f.announceDraft.priority === 'PENTING' ? 'selected' : ''}>Penting (tampil di banner)</option></select></label>
-      <label class="field">Berlaku (jam)<input name="expiresInHours" data-keep="expiresInHours" type="number" min="1" max="2160" value="${esc(f.announceDraft.expiresInHours)}"></label></div>
+    ${announcementFields(f, 'mis. Uji kesiapsiagaan kalung bulan ini')}
     ${targetField}${targetPicker}
     <button class="btn primary" type="submit">${icon('bell')} ${targetLabel}</button></form>`;
-  const list = D.announcements.length ? `<div class="list">${D.announcements.map(a => `<div class="row-item"><span class="row-icon ${a.priority === 'PENTING' ? 'orange' : ''}">${icon('bell')}</span><div class="grow"><b>${esc(a.title)}</b><small>${esc(a.body)}</small><small>${esc(timeAgo(a.createdAt))}${a.expiresAt ? ` · berlaku sampai ${esc(dateTime(a.expiresAt))}` : ''}</small></div>${a.villageIds?.length ? badge(`${a.villageIds.length} desa`, 'blue', true) : badge('Semua desa', 'green', true)}${a.priority === 'PENTING' ? badge('Penting', 'orange') : badge('Info', 'gray', true)}<button class="btn outline sm danger-text" data-action="announcement-delete" data-id="${esc(a.id)}">Hapus</button></div>`).join('')}</div>` : empty('Belum ada pengumuman', '', 'bell');
-  return `${pageHead('Pengumuman', 'Kirim pembaruan operasional ke seluruh desa atau ke desa tertentu. Data kepala desa diisi JAGA Pusat dan dipakai sebagai penerima kontak. Pengumuman penting tampil sebagai banner.')}
-    <div class="grid two">${card({ title: 'Pengumuman baru', flush: true, body: form })}${card({ title: 'Riwayat pengumuman', sub: `${D.announcements.length} pengumuman`, flush: true, body: list })}</div>`;
+  const list = D.announcements.length ? `<div class="list">${D.announcements.map(a => announcementRow(a, true)).join('')}</div>` : empty('Belum ada pengumuman', '', 'bell');
+  return `${pageHead('Pengumuman', 'Sampaikan informasi operasional kepada JAGA Desa dan JAGA Rescue. Pengumuman penting ditampilkan sebagai banner.')}
+    <div class="grid two">${card({ title: 'Pengumuman baru', flush: true, body: form })}${card({ title: 'Riwayat pengumuman', sub: `${D.announcements.length} pengumuman`, flush: true, extra: 'announcement-history', body: list })}</div>`;
 }
-
+/** Desa: pengumuman Pusat + pesan sendiri untuk Rescue. Rescue: pengumuman Pusat + pesan dari Desa. */
+function viewPengumuman() {
+  const f = state.ui.pusat;
+  const isDesa = state.role === 'desa';
+  const form = isDesa ? card({ title: 'Pesan untuk JAGA Rescue', sub: 'Diteruskan ke tim Rescue yang melayani desa Anda', flush: true,
+    body: `<form data-form="announcement" class="card-body" style="display:grid;gap:16px">${announcementFields(f, 'mis. Jalan utara tergenang, gunakan jalur selatan')}<button class="btn primary" type="submit">${icon('bell')} Kirim ke JAGA Rescue</button></form>` }) : '';
+  const list = D.announcements.length ? `<div class="list">${D.announcements.map(a => announcementRow(a, isDesa && a.sourceRole === 'DESA')).join('')}</div>` : empty('Belum ada pengumuman', '', 'bell');
+  return `${pageHead('Pengumuman', isDesa ? 'Pengumuman dari JAGA Pusat dan pesan Anda untuk JAGA Rescue.' : 'Pengumuman dari JAGA Pusat dan pesan dari JAGA Desa.')}
+    <div class="${isDesa ? 'grid two' : 'stack'}">${form}${card({ title: 'Pengumuman & pesan', sub: `${D.announcements.length} aktif`, flush: true, body: list })}</div>`;
+}
 function viewPusatPlatform() {
   const info = D.platformInfo, gov = D.governanceInfo;
   if (!info || !gov) return `${pageHead('Platform & data', 'Pengaturan global dan tata kelola data sensitif.')}${card({ title: 'Belum dapat dimuat', body: empty('Data belum tersedia', 'Muat ulang halaman.', 'building') })}`;
@@ -461,11 +488,11 @@ function viewPusatPlatform() {
       ${toggle('rescue_view_gps', 'Posisi GPS kalung langsung', 'Bila dimatikan, Rescue hanya melihat lokasi rumah.')}</div></fieldset>
     <button class="btn primary" type="submit">Simpan pengaturan</button></form>`;
   const access = Object.entries(gov.rescueAccess30d || {});
-  return `${pageHead('Platform & data', 'Pengaturan global, versi sistem, dan tata kelola data sensitif. NIK tidak ditampilkan di antarmuka mana pun.')}
+  return `${pageHead('Platform & data', 'Pengaturan global, versi sistem, dan perlindungan data warga.')}
     <div class="stack"><div class="grid two">${card({ title: 'Pengaturan platform', flush: true, body: form })}
       <div class="stack">${card({ title: 'Versi dan penyebaran', body: `<div class="op-facts" style="padding:0"><div class="fact"><small>Aplikasi</small><b>v${esc(info.version.app)}</b></div><div class="fact"><small>Penyimpanan</small><b>${esc(info.version.storage)}</b></div><div class="fact"><small>Node</small><b>${esc(info.version.node)}</b></div></div>` })}
-        ${card({ title: 'Versi firmware kalung', sub: 'Sebaran pembaruan di lapangan', flush: true, body: info.firmware.length ? tableWrap(['Versi', 'Jumlah kalung'], info.firmware.map(f => `<tr><td><b>${esc(f.version)}</b></td><td>${f.count}</td></tr>`)) : empty('Belum ada kalung') })}</div></div>
-    <div class="grid two">${card({ title: 'Persetujuan pendataan', body: `<div class="op-facts" style="padding:0"><div class="fact"><small>Warga terdaftar</small><b>${gov.consent.total}</b></div><div class="fact"><small>Sudah berpersetujuan</small><b>${gov.consent.consented}</b></div><div class="fact"><small>NIK tersimpan</small><b>${gov.nikStored}</b></div></div>` })}
+        ${card({ title: 'Versi firmware kalung', sub: 'Sebaran pembaruan di lapangan', body: info.firmware.length ? `<div class="firmware-list">${info.firmware.map(f => `<div><b>${esc(f.version)}</b><span>${f.count} kalung</span></div>`).join('')}</div>` : empty('Belum ada kalung') })}</div></div>
+    <div class="grid two">${card({ title: 'Persetujuan pendataan', extra: 'consent-card', body: `<div class="op-facts compact-facts"><div class="fact"><small>Warga terdaftar</small><b>${gov.consent.total}</b></div><div class="fact"><small>Sudah berpersetujuan</small><b>${gov.consent.consented}</b></div><div class="fact"><small>NIK tersimpan</small><b>${gov.nikStored}</b></div></div>` })}
       ${card({ title: 'Akses Rescue ke data warga (30 hari)', flush: true, body: access.length ? `<div class="list">${access.map(([k, v]) => `<div class="row-item"><div class="grow"><b>${esc(String(k).replaceAll('_', ' '))}</b></div><b>${v}</b></div>`).join('')}${gov.recentAccess.slice(0, 5).map(r => `<div class="row-item"><div class="grow"><small>${esc(dateTime(r.at))}</small><small>${esc(r.summary)}</small></div></div>`).join('')}</div>` : empty('Belum ada akses', 'Setiap pembukaan data warga oleh Rescue tercatat di sini.', 'shield') })}</div></div>`;
 }
 
@@ -517,7 +544,7 @@ function viewDesaStatus() {
     <td>${badge(r.stateLabel, BOARD_TONE[r.state] || 'gray')}${r.assistanceAt ? `<small>Tombol ditekan ${esc(timeAgo(r.assistanceAt))}</small>` : ''}</td>
     <td>${r.alarmSeverity ? `${severityBadge(r.alarmSeverity)}<small>${esc(timeAgo(r.alarmAt))}</small>` : '<small>—</small>'}</td>
     <td>${esc(r.deviceId)}<small>${r.online ? 'online' : 'offline'} · ${r.battery ?? '—'}%</small></td>
-    <td class="row-actions">${r.incidentId && ['BANTUAN', 'TIDAK_DITEMUKAN', 'TIDAK_TERJANGKAU'].includes(r.state) ? `<button class="btn primary sm" data-action="open-modal" data-modal="dispatch" data-id="${esc(r.incidentId)}">Kerahkan tim</button>` : ''}</td></tr>`)) : empty('Belum ada penerima manfaat berkalung', '', 'users');
+    <td class="row-actions">${r.incidentId && ['BANTUAN', 'TIDAK_DITEMUKAN', 'TIDAK_TERJANGKAU'].includes(r.state) ? `<a class="btn outline sm" href="#/kejadian">Lihat kejadian</a>` : ''}</td></tr>`)) : empty('Belum ada penerima manfaat berkalung', '', 'users');
   return `${pageHead('Status warga', 'Keadaan tiap penerima manfaat setelah alarm: belum merespons, meminta bantuan (tombol kalung ditekan), atau aman dan dievakuasi (dikonfirmasi JAGA Rescue).')}
     <div class="stack"><div class="kpis">${order.filter(k => k !== 'NORMAL').map(k => kpi({ icon: k === 'AMAN' ? 'check' : k === 'MENUNGGU' ? 'clock' : 'alert', label: b.labels[k], value: c[k] ?? 0, tone: k === 'BANTUAN' && c[k] ? 'red' : k === 'AMAN' ? 'green' : '' })).join('')}</div>
     ${card({ title: `${b.rows.length} penerima manfaat`, sub: 'Diperbarui langsung saat kalung merespons', flush: true, body })}</div>`;
@@ -528,33 +555,12 @@ function viewDesaBeranda() {
   const op = D.operations[0];
   const items = attentionItemsDesa();
   const assigned = D.devices.filter(d => d.residentId);
-  const banner = op ? operationCard(op) : callout({ tone: 'blue', icon: 'shield', title: 'Tidak ada operasi berjalan', text: 'Operasi dibuka otomatis saat Anda membunyikan alarm Siaga atau Awas untuk seluruh desa.', actions: `<a class="btn primary sm" href="#/alarm">${icon('bell')} Buka alarm</a>` });
+  const banner = op ? operationCard(op) : callout({ tone: 'red', icon: 'alert', title: 'Tidak ada operasi berjalan', text: 'Jika kondisi memburuk, verifikasi situasi lalu aktifkan alarm Siaga atau Awas untuk membuka operasi.', actions: `<a class="btn danger sm" href="#/alarm">${icon('bell')} Aktifkan alarm</a>` });
   const breakdown = D.safety?.breakdown || [];
-  
-  const w = D.weather?.current;
-  const weatherHtml = w ? `
-    <div class="card pad" style="background:var(--green-50); border-color:var(--green-200); display:flex; flex-direction:column; justify-content:center;">
-      <b style="color:var(--green-800); margin-bottom:8px; display:flex; gap:6px; align-items:center;">${icon('info')} Cuaca Terkini</b>
-      <div style="display:flex; gap:16px;">
-        <div class="fact"><small>Suhu</small><b>${w.temperature_2m}°C</b></div>
-        <div class="fact"><small>Hujan</small><b>${w.precipitation} mm</b></div>
-      </div>
-    </div>` : '';
-
-  const emergencyHtml = `
-    <div class="card pad" style="background:var(--red-bg); border-color:#f3cbc7;">
-      <b style="color:var(--red); display:block; margin-bottom:4px;">Kondisi Darurat</b>
-      <small style="color:var(--ink); display:block; margin-bottom:12px;">Aktifkan sirine dan buka operasi rescue.</small>
-      <button class="btn danger" data-action="open-modal" data-modal="emergency" style="width:100%">${icon('bell')} Bunyikan Alarm</button>
-    </div>`;
 
   return `${pageHead('Beranda desa', 'Kondisi terkini warga rentan, kalung, dan kejadian di desa Anda.')}
     <div class="stack">
-      <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:20px;">
-        ${banner}
-        ${weatherHtml}
-        ${emergencyHtml}
-      </div>
+      <div class="home-operation">${banner}</div>
       <div class="kpis">
         ${kpi({ icon: 'users', label: 'Warga terdaftar', value: D.residents.length, hint: `${D.residents.filter(r => r.deviceId).length} berkalung` })}
         ${kpi({ icon: 'device', label: 'Kalung online', value: `${assigned.filter(d => d.online).length}/${assigned.length}`, hint: `${assigned.filter(d => num(d.battery) !== null && d.battery <= 20).length} baterai rendah`, tone: 'blue' })}
@@ -638,9 +644,8 @@ function incidentActions(i) {
   if (role === 'rescue' && ['ASSIGNED', 'EN_ROUTE', 'ARRIVED'].includes(i.status)) {
     buttons.push(`<button class="btn outline sm" data-action="incident-status" data-id="${esc(i.id)}" data-status="NOT_FOUND">Tidak ditemukan</button>`, `<button class="btn outline sm" data-action="incident-status" data-id="${esc(i.id)}" data-status="UNREACHABLE">Tidak terjangkau</button>`);
   }
-  if (role === 'desa' && isActive(i)) buttons.push(`<button class="btn outline sm" data-action="open-modal" data-modal="dispatch" data-id="${esc(i.id)}">Kerahkan tim</button>`);
   if (role !== 'rescue' && isActive(i)) buttons.push(`<button class="btn outline sm" data-action="incident-status" data-id="${esc(i.id)}" data-status="CLOSED">Tutup</button>`);
-  return buttons.join(' ') || '<small>—</small>';
+  return buttons.join('') || '<small>—</small>';
 }
 function viewIncidents(title, sub) {
   const all = D.incidents;
@@ -648,12 +653,12 @@ function viewIncidents(title, sub) {
   const body = rows.length ? tableWrap(['Warga', 'Status', 'Kejadian', 'Tim', 'Aksi'], rows.map(i => `<tr>
     <td><div class="cell-flex"><span class="avatar-sm">${esc(initials(i.ownerName))}</span><div><b>${esc(i.ownerName || '—')}</b><small>${esc(timeAgo(i.createdAt))} · ${esc(dateTime(i.createdAt))}</small></div></div></td>
     <td>${statusBadge(i.status)}</td><td>${esc(i.disasterType || '—')}<small>${esc(i.description || '')}</small></td>
-    <td>${(i.teams || []).map(t => esc(t.name)).join(', ') || '<small>Belum ada tim</small>'}</td><td><button class="btn outline sm" data-action="open-modal" data-modal="sos" data-id="${esc(i.id)}">Detail</button> ${incidentActions(i)}</td></tr>`)) : empty(state.ui.incidentFilter === 'active' ? 'Tidak ada kejadian aktif' : 'Belum ada kejadian', 'SOS dari kalung akan muncul di sini.', 'alert');
+    <td>${(i.teams || []).map(t => esc(t.name)).join(', ') || '<small>Belum ada tim</small>'}</td><td><div class="incident-actions"><button class="btn outline sm" data-action="open-modal" data-modal="sos" data-id="${esc(i.id)}">Detail</button>${incidentActions(i)}</div></td></tr>`)) : empty(state.ui.incidentFilter === 'active' ? 'Tidak ada kejadian aktif' : 'Belum ada kejadian', 'SOS dari kalung akan muncul di sini.', 'alert');
   return `${pageHead(title, sub)}${card({ title: `${rows.length} kejadian`, flush: true, body: `<div class="toolbar"><div class="segmented">
     <button class="${state.ui.incidentFilter === 'active' ? 'active' : ''}" data-action="incident-filter" data-value="active">Aktif</button>
     <button class="${state.ui.incidentFilter === 'all' ? 'active' : ''}" data-action="incident-filter" data-value="all">Semua</button></div></div>${body}` })}`;
 }
-function viewDesaKejadian() { return viewIncidents('Kejadian', 'SOS dan laporan dari warga. Penugasan tim dilakukan komandan Rescue lewat operasi yang dibuka alarm Anda.'); }
+function viewDesaKejadian() { return viewIncidents('Kejadian', 'SOS dan laporan dari warga. Daftar ini membantu Desa memantau prioritas; komandan Rescue menentukan penugasan tim di lapangan.'); }
 
 function viewMapPage(kind) {
   const label = state.role === 'rescue' ? 'Peta operasi' : 'Peta';
@@ -712,9 +717,13 @@ function viewRescueOperasi() {
       title: `${op.villageName} · ${(SEVERITY[op.severity] || [op.severity])[0]}`,
       sub: `${op.disasterType} · area: ${op.areaLabel} · dibuka ${dateTime(op.openedAt)}${op.waterLevelCm != null ? ` · tinggi air ${op.waterLevelCm} cm` : ''}`,
       actions: `<button class="btn outline sm" data-action="op-tiles" data-village="${esc(op.villageId)}">${icon('map')} Unduh peta offline</button> <button class="btn outline sm" data-action="op-pack" data-id="${esc(op.id)}">${icon('download')} Unduh paket offline</button>`,
-      flush: true, body: `${op.note ? `<div style="padding:14px 20px"><small>Catatan Desa: ${esc(op.note)}</small></div>` : ''}${rosterTable(D.rosters[op.id] || [])}` })).join('')}</div>`;
+      flush: true, body: `${op.instruction ? `<div style="padding:14px 20px 0">${callout({ tone: SEVERITY[op.severity]?.[1] || 'blue', icon: 'bell', title: 'Instruksi dari JAGA Desa', text: op.instruction })}</div>` : ''}${op.note ? `<div style="padding:14px 20px"><small>Catatan pengamatan Desa: ${esc(op.note)}</small></div>` : ''}${rosterTable(D.rosters[op.id] || []) }${rescueOperationActions(op)}` })).join('')}</div>`;
 }
-function viewRescueTugas() { return viewIncidents('Tugas lapangan', 'Perbarui status penanganan warga. Perubahan langsung terlihat oleh JAGA Desa.'); }
+function rescueOperationActions(op) {
+  const incidents = D.incidents.filter(i => i.villageId === op.villageId && isActive(i));
+  if (!incidents.length) return '';
+  return `<div class="operation-actions"><h3>Tindak lanjut SOS</h3><p>Perbarui status setiap SOS sesuai kondisi lapangan. Urutan dan penugasan tim tetap diputuskan komandan Rescue.</p>${tableWrap(['Warga', 'Status', 'Waktu', 'Aksi'], incidents.map(i => `<tr><td><b>${esc(i.ownerName || 'Warga')}</b></td><td>${statusBadge(i.status)}</td><td>${esc(timeAgo(i.createdAt))}</td><td><div class="incident-actions">${incidentActions(i)}</div></td></tr>`))}</div>`;
+}
 
 function viewRescueLaporan() {
   const ops = (D.opsAll || []).slice().sort((a, b) => String(b.openedAt).localeCompare(String(a.openedAt)));
@@ -857,8 +866,8 @@ function destroyMaps() { state.maps.forEach(m => { try { m.stop(); m.remove(); }
 /* --------------------------------------------------------- Rute tampilan */
 const VIEWS = {
   pusat: { ringkasan: viewPusatRingkasan, desa: viewPusatDesa, warga: () => residentsView({ canAdd: false, withVillage: true }), kalung: viewPusatKalung, kendala: viewPusatKendala, pengumuman: viewPusatPengumuman, platform: viewPusatPlatform, aturan: viewPusatAturan, akun: viewPusatAkun, laporan: viewPusatLaporan, audit: viewPusatAudit },
-  desa: { beranda: viewDesaBeranda, warga: viewDesaWarga, alarm: viewDesaAlarm, kalung: viewDesaKalung, kejadian: viewDesaKejadian, status: viewDesaStatus, titik: viewDesaTitik, kendala: viewKendalaLapor, peta: () => viewMapPage('village') },
-  rescue: { prioritas: viewRescuePrioritas, operasi: viewRescueOperasi, tugas: viewRescueTugas, tim: viewRescueTim, laporan: viewRescueLaporan, kendala: viewKendalaLapor, peta: () => viewMapPage('rescue') }
+  desa: { beranda: viewDesaBeranda, warga: viewDesaWarga, alarm: viewDesaAlarm, kalung: viewDesaKalung, kejadian: viewDesaKejadian, status: viewDesaStatus, titik: viewDesaTitik, pengumuman: viewPengumuman, kendala: viewKendalaLapor, peta: () => viewMapPage('village') },
+  rescue: { prioritas: viewRescuePrioritas, operasi: viewRescueOperasi, tim: viewRescueTim, laporan: viewRescueLaporan, pengumuman: viewPengumuman, kendala: viewKendalaLapor, peta: () => viewMapPage('rescue') }
 };
 function currentRoute() {
   const id = location.hash.replace(/^#\/?/, '').split('?')[0];
@@ -894,7 +903,7 @@ function renderNavbar() {
       : state.role === 'pusat' ? '<span class="status-pill"><i></i>Terhubung</span>'
       : `<span class="status-pill"><i></i>Terhubung<small>${c.devicesOnline ?? 0}/${c.devicesTotal ?? 0} kalung</small></span>`;
   const openTicketCount = D.tickets.filter(t => t.status !== 'RESOLVED').length;
-  const tabBadge = id => (id === 'kendala' && state.role === 'pusat' && openTicketCount) ? `<span class="badge-mini">${openTicketCount}</span>` : ((id === 'kejadian' || id === 'tugas') && activeIncidents) ? `<span class="badge-mini">${activeIncidents}</span>` : (id === 'operasi' && D.operations.length) ? `<span class="badge-mini">${D.operations.length}</span>` : '';
+  const tabBadge = id => (id === 'kendala' && state.role === 'pusat' && openTicketCount) ? `<span class="badge-mini">${openTicketCount}</span>` : (id === 'kejadian' && activeIncidents) ? `<span class="badge-mini">${activeIncidents}</span>` : (id === 'operasi' && D.operations.length) ? `<span class="badge-mini">${D.operations.length}</span>` : '';
   let menu = '';
   if (state.ui.menu === 'notif') {
     const items = D.notifications.slice(0, 8);
@@ -917,10 +926,10 @@ function renderNavbar() {
       <div class="side-menu"><nav class="side-nav">${config.pages.map(([id, label, name]) => `<a class="side-link ${id === route ? 'active' : ''}" href="#/${id}">${icon(name)}<span>${esc(label)}</span>${tabBadge(id)}</a>`).join('')}</nav></div>`
     : '';
   const sosNow = D.incidents.filter(i => isActive(i) && i.status === 'NEW');
-  const sosBar = sosNow.length ? `<div class="sos-bar" role="alert"><span class="sos-dot"></span><b>${sosNow.length} SOS baru</b><span>${sosNow.slice(0, 2).map(i => esc(i.ownerName || 'Warga')).join(', ')}${sosNow.length > 2 ? ` dan ${sosNow.length - 2} lainnya` : ''}</span><a class="btn sm" href="#/${state.role === 'rescue' ? 'tugas' : 'kejadian'}">Lihat</a></div>` : '';
+  const sosBar = sosNow.length ? `<div class="sos-bar" role="alert"><span class="sos-dot"></span><b>${sosNow.length} SOS baru</b><span>${sosNow.slice(0, 2).map(i => esc(i.ownerName || 'Warga')).join(', ')}${sosNow.length > 2 ? ` dan ${sosNow.length - 2} lainnya` : ''}</span><a class="btn sm" href="#/${state.role === 'rescue' ? 'operasi' : 'kejadian'}">Lihat</a></div>` : '';
   const offlineBar = JagaApi.net.offline || queued
     ? `<div class="offline-bar" role="status">${icon('signal')}<b>${JagaApi.net.offline ? 'Mode offline' : 'Menyinkronkan'}</b><span>${queued ? `${queued} perubahan tersimpan di perangkat dan akan dikirim otomatis saat koneksi kembali.` : 'Data yang tampil adalah yang terakhir dimuat. Alarm hanya dapat dibunyikan saat terhubung ke server.'}</span></div>` : '';
-  const important = (D.announcements || []).filter(a => a.priority === 'PENTING' && state.role !== 'pusat').slice(0, 2);
+  const important = (D.announcements || []).filter(a => a.priority === 'PENTING' && state.role !== 'pusat' && !(state.role === 'desa' && a.sourceRole === 'DESA')).slice(0, 2);
   const noticeBar = important.map(a => `<div class="notice-bar" role="status">${icon('bell')}<b>${esc(a.title)}</b><span>${esc(a.body)}</span></div>`).join('');
   $('#demoBar').innerHTML = offlineBar + sosBar + noticeBar;
 }
@@ -953,9 +962,10 @@ function residentModal() {
     <label class="field">No. Kartu Keluarga<input name="noKk" maxlength="16" inputmode="numeric" placeholder="3273xxxxxxxxxxxx"></label>
     <label class="field">Telepon (warga)<input name="phone" inputmode="tel"></label>
     <label class="field">Kontak darurat (keluarga/tetangga)<input name="emergencyContact" inputmode="tel" placeholder="mis. 0812-xxxx-xxxx (Nama)"></label>
-    <label class="field wide">Alamat<input name="address"></label>
+    <label class="field wide">Alamat<input name="address" id="rnSearch" placeholder="Contoh: Jalan Meunasah, Gampong Leubok Pusaka"><small>Masukkan alamat lalu pilih Cari alamat untuk mengarahkan peta. Tetapkan titik rumah secara tepat dengan klik peta.</small></label>
     <div class="field wide" style="display:flex;flex-direction:column;gap:6px;">
-      <span>Lokasi Rumah — klik titik di peta</span>
+      <span>Lokasi Rumah</span>
+      <div class="map-search"><button class="btn outline sm" type="button" id="rnBtnSearch">Cari alamat</button><small>Hasil pencarian adalah perkiraan; periksa dan geser titik sesuai rumah warga.</small></div>
       <div id="${mapId}" class="map-box" style="height:220px;border-radius:12px;z-index:1"></div>
       <div style="display:flex;gap:10px;margin-top:4px;">
         <input name="latitude" id="resModalLat" type="number" step="any" placeholder="Latitude (klik peta)" readonly style="flex:1;background:#f5f7f5">
@@ -977,7 +987,9 @@ function residentModal() {
   setTimeout(() => {
     const el = document.getElementById(mapId);
     if (!el || !window.L) return;
-    const map = L.map(el).setView([-6.2, 106.8], 12);
+    const village = D.villages.find(v => v.id === ownVillageId());
+    const initialLat = num(village?.latitude) ?? -6.2, initialLng = num(village?.longitude) ?? 106.8;
+    const map = L.map(el).setView([initialLat, initialLng], 14);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
     let marker = null;
     const latI = document.getElementById('resModalLat'), lngI = document.getElementById('resModalLng');
@@ -1133,11 +1145,11 @@ async function loadRoute(m) {
     const gap = road ? Math.round(road.endGap) : 0;
     const dist = road ? road.distance + road.startGap + road.endGap : data.fastest.distanceMeters, dur = road ? road.duration + (road.startGap + road.endGap) / 1.2 : data.fastest.durationSeconds;
     const source = to.source === 'GPS' ? `GPS kalung${to.accuracyMeters ? ` ±${Math.round(to.accuracyMeters)} m` : ''}${to.positionAt ? ` · ${timeAgo(to.positionAt)}` : ''}` : 'lokasi rumah (belum ada GPS segar)';
-    info.innerHTML = `<div class="route-summary"><div><b>${esc(data.residentName)}</b><small>Dari ${esc(from.label)} · tujuan: ${esc(source)}</small></div>
-      <div class="route-stats"><span><b>${km(dist)}</b>jarak</span><span><b>${minutes(dur)}</b>perkiraan</span><span><b>${esc(data.fastest.accessLabel)}</b>akses</span></div></div>
+    info.innerHTML = `<section class="route-summary"><div class="route-person"><span class="eyebrow">Tujuan evakuasi</span><b>${esc(data.residentName)}</b><small><strong>Tim:</strong> ${esc(from.label)}</small><small><strong>Lokasi:</strong> ${esc(source)}</small></div>
+      <div class="route-stats"><span><small>Jarak</small><b>${km(dist)}</b></span><span><small>Perkiraan waktu</small><b>${minutes(dur)}</b></span><span><small>Kondisi akses</small><b>${esc(data.fastest.accessLabel)}</b></span></div></section>
       ${gap > 300 ? callout({ tone: 'yellow', icon: 'info', title: `Jalan terpetakan terdekat ±${km(gap)} dari warga`, text: 'Sisa jarak ditempuh di luar jalan terpetakan (garis abu-abu putus-putus, dihitung berjalan kaki). Konfirmasi jalur di lapangan.' }) : ''}
       ${data.fastest.hazards.length ? callout({ tone: 'red', icon: 'alert', title: 'Tujuan berada di zona bahaya', text: data.fastest.hazards.join(', ') }) : ''}
-      <small>${road ? 'Rute jalan dari OSRM (kendaraan).' : 'Jaringan jalan tidak terjangkau; garis putus-putus adalah estimasi jarak lurus.'} ${esc(data.note)}</small>
+      <p class="route-note">${road ? 'Rute mengikuti jaringan jalan kendaraan dari OSRM.' : 'Jaringan jalan belum tersedia; garis putus-putus adalah estimasi jarak lurus.'} ${esc(data.note)}</p>
       <div class="route-links"><a class="btn primary sm" target="_blank" rel="noopener" href="${esc(data.navigation.google)}">${icon('route')} Buka navigasi (Google Maps)</a> <a class="btn outline sm" target="_blank" rel="noopener" href="${esc(data.navigation.osm)}">OpenStreetMap</a></div>`;
   } catch (error) { if (info) info.innerHTML = `<small>Rute tidak dapat dihitung: ${esc(error.message)}</small>`; }
 }
@@ -1220,6 +1232,17 @@ function deviceNewModal() {
     <label class="field">Simpan di<select name="villageId"><option value="">Gudang Pusat</option>${D.villages.map(v => `<option value="${esc(v.id)}">${esc(v.name)}</option>`).join('')}</select></label></form>`;
   return modalShell({ title: 'Daftarkan kalung', sub: 'Kunci kalung dibuat otomatis dan hanya ditampilkan sekali.', body,
     foot: `<button class="btn outline" data-action="close-modal">Batal</button><button class="btn primary" type="submit" form="modalForm">Daftarkan</button>` });
+}
+function deviceBulkModal() {
+  const body = `<form id="modalForm" data-form="device-bulk" class="form-grid">
+    <div class="wide callout blue"><span class="callout-icon">${icon('device')}</span><div><b>Daftarkan stok sekaligus</b><p>Buat hingga 1.000 kalung dalam satu proses. File CSV berisi ID dan kunci perangkat akan diunduh sekali setelah berhasil.</p></div></div>
+    <label class="field">Jumlah kalung<input name="count" type="number" value="100" min="1" max="1000" required></label>
+    <label class="field">Awalan ID<input name="prefix" value="JAGA" maxlength="24" pattern="[A-Za-z0-9-]+" required><small>Contoh hasil: JAGA-001</small></label>
+    <label class="field">Nomor awal<input name="start" type="number" value="1" min="0" max="9999999" required></label>
+    <label class="field">Model<input name="model" maxlength="80" value="JAGA Rumah v1"></label>
+    <label class="field wide">Simpan di<select name="villageId"><option value="">Gudang Pusat</option>${D.villages.map(v => `<option value="${esc(v.id)}">${esc(v.name)}</option>`).join('')}</select></label></form>`;
+  return modalShell({ title: 'Tambahkan stok kalung', sub: 'Periksa jumlah dan awalan ID sebelum menyimpan.', body,
+    foot: `<button class="btn outline" data-action="close-modal">Batal</button><button class="btn primary" type="submit" form="modalForm">Daftarkan stok</button>` });
 }
 function villageHeadModal(id) {
   const v = D.villages.find(x => x.id === id);
@@ -1367,7 +1390,7 @@ function renderModal() {
   if (state.modalMap) { try { state.modalMap.stop(); state.modalMap.remove(); } catch { /* sudah dilepas */ } state.modalMap = null; }
   if (!m) { root.innerHTML = ''; return; }
   const op = D.operations.find(o => o.id === m.id);
-  const html = m.type === 'resident' ? residentModal() : m.type === 'account' ? accountModal() : m.type === 'shelter' ? shelterModal(m.id) : m.type === 'device-new' ? deviceNewModal() : m.type === 'account-edit' ? accountEditModal(m.id) : m.type === 'dispatch' ? dispatchModal(m.id) : m.type === 'resident-edit' ? residentEditModal(m) : m.type === 'device-key' ? deviceKeyModal() : m.type === 'device-dist' ? deviceDistModal(m.id) : m.type === 'device-assign' ? deviceAssignModal(m.id) : m.type === 'ticket-resolve' ? ticketResolveModal(m.id) : m.type === 'rules-activate' ? rulesActivateModal(m.id) : m.type === 'sos' ? sosModal(m) : m.type === 'route' ? routeModal(m) : m.type === 'village-head' ? villageHeadModal(m.id) : m.type === 'alarm-confirm' ? alarmConfirmModal(m.payload) : m.type === 'emergency' ? emergencyModal()
+  const html = m.type === 'resident' ? residentModal() : m.type === 'account' ? accountModal() : m.type === 'shelter' ? shelterModal(m.id) : m.type === 'device-new' ? deviceNewModal() : m.type === 'device-bulk' ? deviceBulkModal() : m.type === 'account-edit' ? accountEditModal(m.id) : m.type === 'dispatch' ? dispatchModal(m.id) : m.type === 'resident-edit' ? residentEditModal(m) : m.type === 'device-key' ? deviceKeyModal() : m.type === 'device-dist' ? deviceDistModal(m.id) : m.type === 'device-assign' ? deviceAssignModal(m.id) : m.type === 'ticket-resolve' ? ticketResolveModal(m.id) : m.type === 'rules-activate' ? rulesActivateModal(m.id) : m.type === 'sos' ? sosModal(m) : m.type === 'route' ? routeModal(m) : m.type === 'village-head' ? villageHeadModal(m.id) : m.type === 'alarm-confirm' ? alarmConfirmModal(m.payload) : m.type === 'emergency' ? emergencyModal()
     : m.type === 'water' && op ? waterModal(op) : m.type === 'close-op' && op ? closeOpModal(op) : m.type === 'confirm' ? confirmModal(m) : '';
   root.innerHTML = html;
   const form = $('#modalForm', root);
@@ -1471,7 +1494,11 @@ const ACTIONS = {
       title: 'Lepas Kalung?', sub: 'Data warga tidak akan dihapus',
       message: `Lepas kalung dari warga ini? Kalung akan dikembalikan ke stok desa.`,
       confirmLabel: 'Lepas', danger: true,
-      run: () => run(() => JagaApi.updateResident(el.dataset.id, { deviceId: null }), 'Kalung berhasil dilepas')
+      run: () => {
+        const resident = D.residents.find(r => r.id === el.dataset.id);
+        if (!resident?.deviceId) return toast('Kalung warga ini sudah tidak terpasang.', true);
+        return run(() => JagaApi.unassignDevice(resident.deviceId), 'Kalung berhasil dilepas');
+      }
     });
   },
   'track-start'() { const select = $('#trackTeam'); if (select?.value) startTracking(select.value); },
@@ -1569,13 +1596,27 @@ const FORMS = {
   'device-new'(form) {
     const payload = Object.fromEntries(new FormData(form).entries());
     for (const key of Object.keys(payload)) if (payload[key] === '') delete payload[key];
+    if (payload.id && D.devices.some(d => d.id.toUpperCase() === String(payload.id).trim().toUpperCase())) return toast('ID perangkat sudah terdaftar. Gunakan ID lain atau kosongkan agar dibuat otomatis.', true);
     return run(() => JagaApi.createDevice(payload)).then(result => { if (result) { state.ui.lastKey = { id: result.id, key: result.deviceKey }; openModal({ type: 'device-key' }); } });
+  },
+  'device-bulk'(form) {
+    const payload = Object.fromEntries(new FormData(form).entries());
+    const count = Number(payload.count);
+    if (!Number.isInteger(count) || count < 1 || count > 1000) return toast('Jumlah kalung harus antara 1 dan 1.000.', true);
+    return run(() => JagaApi.createDevicesBulk(payload)).then(result => {
+      if (!result) return;
+      const csv = ['id,kunci_perangkat', ...result.devices.map(d => `${d.id},${d.deviceKey}`)].join('\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      const link = document.createElement('a'); link.href = url; link.download = `jaga-kunci-${Date.now()}.csv`; link.click(); URL.revokeObjectURL(url);
+      closeModal(); toast(`${result.count} kalung terdaftar. CSV kunci perangkat telah diunduh.`); loadData(true);
+    });
   },
   'device-dist'(form) {
     return run(() => JagaApi.distributeDevice(form.dataset.id, new FormData(form).get('villageId')), 'Kalung dipindahkan').then(ok => { if (ok) closeModal(); });
   },
   'device-assign'(form) {
-    return run(() => JagaApi.updateResident(form.dataset.id, { deviceId: new FormData(form).get('deviceId') }), 'Kalung dipasangkan').then(ok => { if (ok) closeModal(); });
+    const deviceId = String(new FormData(form).get('deviceId') || '');
+    return run(() => JagaApi.assignDevice(deviceId, form.dataset.id), 'Kalung dipasangkan').then(ok => { if (ok) closeModal(); });
   },
   'village-head'(form) {
     const d = new FormData(form);
@@ -1615,18 +1656,13 @@ return run(async () => {
   },
   announcement(form) {
     const d = Object.fromEntries(new FormData(form).entries());
-    const target = state.ui.pusat.announceTarget;
     let villageIds = null;
-    if (target === 'VILLAGES') {
+    if (state.role === 'pusat' && state.ui.pusat.announceTarget === 'VILLAGES') {
       villageIds = state.ui.pusat.announceVillages.slice();
       if (!villageIds.length) return toast('Pilih minimal satu desa tujuan', true);
-    } else if (target === 'REGENCY') {
-      const regency = (state.ui.pusat.announceRegency || '').trim();
-      if (!regency) return toast('Pilih kabupaten tujuan', true);
-      villageIds = D.villages.filter(v => v.regency === regency).map(v => v.id);
-      if (!villageIds.length) return toast('Tidak ada desa di kabupaten tersebut', true);
     }
-    return run(() => JagaApi.createAnnouncement({ ...d, expiresInHours: Number(d.expiresInHours), villageIds }), 'Pengumuman terkirim').then(ok => { if (ok) { state.ui.pusat.announceDraft = { title: '', body: '', expiresInHours: '72' }; form.reset(); } });
+    const reset = () => { state.ui.pusat.announceDraft = { title: '', body: '', priority: 'INFO', expiresInHours: '72' }; render(); };
+    return run(() => JagaApi.createAnnouncement({ ...d, expiresInHours: Number(d.expiresInHours), villageIds }), state.role === 'desa' ? 'Pesan diteruskan ke JAGA Rescue' : 'Pengumuman terkirim').then(ok => { if (ok) reset(); });
   },
   platform(form) {
     const d = new FormData(form);
@@ -1849,8 +1885,14 @@ async function loadData(silent = false) {
     }
     if (role === 'pusat' || role === 'desa') {
       try {
-        const wRes = await fetch('https://api.open-meteo.com/v1/forecast?latitude=-6.2&longitude=106.8&current=temperature_2m,precipitation,weather_code&timezone=auto');
-        if (wRes.ok) D.weather = await wRes.json();
+        const weatherVillages = role === 'pusat' ? villages.filter(v => v.latitude != null && v.longitude != null) : villages.filter(v => v.latitude != null && v.longitude != null).slice(0, 1);
+        const weather = await Promise.all(weatherVillages.map(async village => {
+          const response = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${village.latitude}&longitude=${village.longitude}&current=temperature_2m,precipitation&timezone=auto`);
+          const data = response.ok ? await response.json() : null;
+          return data?.current ? { ...village, temperature: data.current.temperature_2m, precipitation: data.current.precipitation } : null;
+        }));
+        D.weatherByVillage = weather.filter(Boolean);
+        D.weather = D.weatherByVillage[0] ? { current: { temperature_2m: D.weatherByVillage[0].temperature, precipitation: D.weatherByVillage[0].precipitation } } : null;
       } catch (e) {}
     }
     state.error = '';
@@ -1971,7 +2013,7 @@ async function boot() {
     const messages = {
       'sos.created': `SOS diterima dari ${who}`, 'incident.updated': 'Status kejadian diperbarui', 'incident.closed': 'Kejadian ditutup',
       'alert.created': `Peringatan ${(SEVERITY[data.severity] || [data.severity])[0]} tercatat`, 'resident.created': 'Data warga baru ditambahkan',
-      'ticket.created': 'Kendala teknis baru dilaporkan', 'ticket.updated': 'Kendala teknis diperbarui', 'announcement.created': `Pengumuman Pusat: ${data.title || ''}`, 'alert.receipt': data.status === 'ASSISTANCE_REQUESTED' ? 'Warga meminta bantuan lewat kalung' : '', 'operation.opened': 'Operasi dibuka: akses data warga berkalung di area terdampak', 'operation.updated': 'Operasi diperbarui', 'operation.closed': 'Operasi ditutup'
+      'ticket.created': 'Kendala teknis baru dilaporkan', 'ticket.updated': 'Kendala teknis diperbarui', 'announcement.created': data.sourceRole === 'DESA' ? `Pesan JAGA Desa: ${data.title || ''}` : `Pengumuman Pusat: ${data.title || ''}`, 'alert.receipt': data.status === 'ASSISTANCE_REQUESTED' ? 'Warga meminta bantuan lewat kalung' : '', 'operation.opened': 'Operasi dibuka: akses data warga berkalung di area terdampak', 'operation.updated': 'Operasi diperbarui', 'operation.closed': 'Operasi ditutup'
     };
     if (messages[type]) toast(messages[type]);
     if (type === 'sos.created') beep();

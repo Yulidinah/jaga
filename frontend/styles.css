@@ -278,6 +278,31 @@ select:hover { border-color: #ccd8cf; }
 .field select, .status-select, .field.inline select { padding-right: 32px; }
 .field.inline select { background-position: right 9px center; padding-right: 28px; }
 
+/* Ringkasan Pusat: informasi ringkas tanpa satu kartu mengambil seluruh lebar. */
+.weather-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+.weather-item { padding: 13px 14px; border: 1px solid var(--green-100); border-radius: 14px; background: var(--green-50); }
+.weather-item > b, .weather-item > small { display: block; }
+.weather-item > small { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.weather-item > span { display: flex; align-items: baseline; gap: 10px; margin-top: 9px; }
+.weather-item strong { color: var(--green-800); font: 800 20px var(--font-head); }
+.weather-item em { color: var(--muted); font-size: 12px; font-style: normal; }
+.announcement-history .list { max-height: 520px; overflow-y: auto; overscroll-behavior: contain; }
+.firmware-list { display: grid; gap: 8px; }
+.firmware-list > div { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 11px 13px; border: 1px solid var(--line-soft); border-radius: 12px; }
+.firmware-list span { color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.compact-facts { gap: 0; padding: 0; }
+.compact-facts .fact { flex: 1; min-width: 120px; padding: 4px 16px; border-right: 1px solid var(--line-soft); }
+.compact-facts .fact:first-child { padding-left: 0; }
+.compact-facts .fact:last-child { border-right: 0; }
+.map-search { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.map-search small { color: var(--muted); font-weight: 500; }
+.report-more { display: inline; }
+.report-more summary { display: inline; margin-left: 5px; color: var(--green-600); font-weight: 700; cursor: pointer; }
+.report-more > div { margin-top: 7px; color: var(--ink); font-weight: 400; }
+.home-operation .callout { margin: 0; }
+.incident-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 152px; }
+.incident-actions .btn { margin: 0; white-space: nowrap; }
+
 /* ----------------------------------------------------------------- Daftar */
 .list { display: grid; }
 .row-item { display: flex; gap: 14px; align-items: center; padding: 12px 22px; border-bottom: 1px solid var(--line-soft); }
@@ -365,6 +390,23 @@ select:hover { border-color: #ccd8cf; }
 .route-stats b { font-size: 18px; color: var(--ink); }
 .route-links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
 
+/* Rute Rescue: utamakan tujuan, jarak, waktu, dan kondisi akses. */
+.route-summary { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 1.35fr); gap: 18px; align-items: stretch; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--green-50); }
+.route-person { display: grid; gap: 4px; align-content: start; }
+.route-person > b { font: 800 18px var(--font-head); color: var(--green-900); }
+.route-person small { color: var(--muted); font-size: 12px; }
+.route-person small strong { color: var(--ink); }
+.route-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line-soft); border-radius: 12px; overflow: hidden; background: #fff; }
+.route-stats span { display: grid; gap: 3px; align-content: center; padding: 10px 12px; border-right: 1px solid var(--line-soft); }
+.route-stats span:last-child { border-right: 0; }
+.route-stats small { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.route-stats b { font: 800 15px var(--font-head); color: var(--ink); line-height: 1.25; }
+.route-note { margin: 2px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.operation-actions { margin-top: 20px; padding: 20px 0 0; border-top: 1px solid var(--line-soft); }
+.operation-actions > h3, .operation-actions > p { margin-left: 22px; margin-right: 22px; }
+.operation-actions > h3 { font-size: 15px; }
+.operation-actions > p { margin-top: 4px; margin-bottom: 14px; color: var(--muted); font-size: 13px; }
+
 /* ------------------------------------------------------------- Modal & toast */
 .modal-backdrop { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 20px; background: rgba(10, 30, 20, .55); backdrop-filter: blur(5px); }
 .modal { width: min(580px, 100%); max-height: calc(100vh - 40px); overflow: auto; background: #fff; border-radius: 28px; box-shadow: 0 40px 90px rgba(0, 0, 0, .3); }
@@ -423,6 +465,13 @@ select:hover { border-color: #ccd8cf; }
   .map-box { height: 340px; }
   .kpi strong { font-size: 30px; }
   .modal-head, .modal-body, .modal-foot { padding-left: 20px; padding-right: 20px; }
+  .route-summary { grid-template-columns: 1fr; }
+  .route-stats { grid-template-columns: 1fr; }
+  .route-stats span { border-right: 0; border-bottom: 1px solid var(--line-soft); }
+  .route-stats span:last-child { border-bottom: 0; }
+  .compact-facts .fact { padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--line-soft); }
+  .compact-facts .fact:first-child { padding-left: 12px; }
+  .compact-facts .fact:last-child { border-bottom: 0; }
 }
 @media print { .sidebar, .navbar, .toast, .page-actions { display: none !important; } body { background: #fff; } }
 

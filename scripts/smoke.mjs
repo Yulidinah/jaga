@@ -121,6 +121,7 @@ try {
   const opId = alert.data?.operation?.id;
   const rescueOps = (await call("GET", "/api/operations", { cookie: R })).data ?? [];
   check("Rescue melihat operasi aktif di wilayahnya", rescueOps.some(o => o.id === opId));
+  check("Rescue membaca pesan instruksi Desa pada operasi", rescueOps.find(o => o.id === opId)?.instruction === "Uji alarm");
   check("Rescue tidak boleh membuka daftar warga", (await call("GET", "/api/residents", { cookie: R })).status === 403);
   check("Rescue tidak boleh membuka daftar perangkat", (await call("GET", "/api/devices", { cookie: R })).status === 403);
   const roster = (await call("GET", `/api/operations/${opId}/roster`, { cookie: R })).data ?? [];
@@ -356,6 +357,8 @@ try {
   check("Desa tidak dapat mendaftarkan kalung baru", dCreate.status === 403);
   const wh = await call("POST", "/api/devices", { cookie: P, body: { id: "JAGA-0099", model: "JAGA Rumah v1" } });
   check("Pusat mendaftarkan kalung ke gudang tanpa desa dan koordinat", wh.status === 201 && wh.data?.villageId === null && !!wh.data?.deviceKey, `status ${wh.status} ${wh.error ?? ""}`);
+  const bulk = await call("POST", "/api/devices/bulk", { cookie: P, body: { prefix: "JAGA-BULK", start: 1, count: 2, model: "JAGA Rumah v1" } });
+  check("Pusat mendaftarkan stok kalung sekaligus", bulk.status === 201 && bulk.data?.count === 2 && bulk.data?.devices?.every(d => d.id && d.deviceKey), `status ${bulk.status} ${bulk.error ?? ""}`);
   const dList1 = (await call("GET", "/api/devices", { cookie: D })).data?.data ?? [];
   check("kalung gudang tidak terlihat oleh Desa", !dList1.some(d => d.id === "JAGA-0099"));
   check("Desa tidak dapat mendistribusikan kalung", (await call("POST", "/api/devices/JAGA-0099/distribute", { cookie: D, body: { villageId: myVillage } })).status === 403);
@@ -433,9 +436,15 @@ try {
   check("Desa tidak dapat membuka panel tata kelola", (await call("GET", "/api/governance", { cookie: D })).status === 403);
 
   const ann = await call("POST", "/api/announcements", { cookie: P, body: { title: "Uji pengumuman", body: "Mohon periksa kalung", priority: "PENTING", expiresInHours: 24 } });
-  check("Pusat mengirim pengumuman ke seluruh Desa", ann.status === 201 && ann.data?.priority === "PENTING");
-  check("Desa dan Rescue menerima pengumuman", [D, S2, R].every(async c => true) && ((await call("GET", "/api/announcements", { cookie: D })).data ?? []).some(a => a.id === ann.data?.id) && ((await call("GET", "/api/announcements", { cookie: R })).data ?? []).some(a => a.id === ann.data?.id));
-  check("Desa tidak dapat mengirim pengumuman", (await call("POST", "/api/announcements", { cookie: D, body: { title: "x tidak sah", body: "y tidak sah" } })).status === 403);
+  check("Pusat mengirim pengumuman ke Desa dan Rescue", ann.status === 201 && ann.data?.priority === "PENTING" && ann.data?.sourceRole === "PUSAT");
+  check("Desa dan Rescue menerima pengumuman Pusat", [D, R].every(async () => true) && ((await call("GET", "/api/announcements", { cookie: D })).data ?? []).some(a => a.id === ann.data?.id) && ((await call("GET", "/api/announcements", { cookie: R })).data ?? []).some(a => a.id === ann.data?.id));
+  const annDesa = await call("POST", "/api/announcements", { cookie: D, body: { title: "Jalan utara tergenang", body: "Gunakan jalur selatan", priority: "PENTING", villageIds: [] } });
+  check("Desa mengirim pesan yang diteruskan ke Rescue", annDesa.status === 201 && annDesa.data?.sourceRole === "DESA" && annDesa.data?.villageIds?.length === 1);
+  check("Rescue menerima pesan Desa, Desa lain dan Pusat-nya tidak salah sasaran", ((await call("GET", "/api/announcements", { cookie: R })).data ?? []).some(a => a.id === annDesa.data?.id) && !((await call("GET", "/api/announcements", { cookie: S2 })).data ?? []).some(a => a.id === annDesa.data?.id) && ((await call("GET", "/api/announcements", { cookie: P })).data ?? []).some(a => a.id === annDesa.data?.id));
+  check("Rescue tidak dapat mengirim pengumuman", (await call("POST", "/api/announcements", { cookie: R, body: { title: "x tidak sah", body: "y tidak sah" } })).status === 403);
+  check("Desa tidak dapat menghapus pengumuman Pusat", (await call("DELETE", `/api/announcements/${ann.data?.id}`, { cookie: D })).status === 403);
+  check("Desa lain tidak dapat menghapus pesan Desa ini", (await call("DELETE", `/api/announcements/${annDesa.data?.id}`, { cookie: S2 })).status === 403);
+  check("Desa menghapus pesannya sendiri", (await call("DELETE", `/api/announcements/${annDesa.data?.id}`, { cookie: D })).data?.deleted === true);
   check("Pusat menghapus pengumuman", (await call("DELETE", `/api/announcements/${ann.data?.id}`, { cookie: P })).data?.deleted === true);
   const vst = await call("GET", "/api/village-status", { cookie: P });
   check("status desa: tiga desa aktif dengan waktu sinkron terakhir", vst.status === 200 && vst.data?.villages?.filter(v => !/fixture/i.test(v.name)).length === 3 && vst.data.villages.filter(v => !/fixture/i.test(v.name)).every(v => v.status === "ACTIVE" && v.lastSyncAt), JSON.stringify(vst.data?.villages?.map(v => [v.name, v.status])).slice(0, 160));

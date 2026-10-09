@@ -278,7 +278,7 @@ atas judul halaman. Di layar sempit sidebar menjadi baris menu yang dapat digese
 | | Data warga | Pandangan baca saja, dikelompokkan per desa dengan filter provinsi dan desa |
 | | Kalung | Inventaris: daftarkan kalung ke gudang Pusat, distribusikan ke desa atau tarik kembali |
 | | Kendala teknis | Laporan dari Desa dan Rescue yang hanya dapat diselesaikan Pusat; mulai tangani dan selesaikan dengan catatan |
-| | Pengumuman | Kirim pembaruan ke seluruh desa atau ke desa tertentu; prioritas "Penting" tampil sebagai banner |
+| | Pengumuman | Kirim pembaruan ke JAGA Desa dan JAGA Rescue (semua desa atau desa tertentu); prioritas "Penting" tampil sebagai banner |
 | | Aturan prioritas | Aturan aktif dapat direvisi: buka editor lewat "Edit aturan", ubah poin, penjelasan, dan ambang warna, lalu "Simpan draf" atau "Aktifkan" dengan catatan; draf tampil sebagai pratinjau baca-saja sebelum diaktifkan |
 | | Akun & akses | Daftar akun, buat akun, dan hapus akun (kecuali akun sendiri dan Pusat terakhir) |
 | | Platform & data | Status basis data dan penyimpanan, mode demo, tautan dokumentasi |
@@ -306,7 +306,7 @@ atas judul halaman. Di layar sempit sidebar menjadi baris menu yang dapat digese
 ## Pembagian tugas Pusat, Desa, dan Rescue
 
 - **Siaga, Waspada, dan penanganan insiden** sepenuhnya di **JAGA Desa dan JAGA Rescue**. Hanya JAGA Desa yang membunyikan alarm (termasuk tombol sinyal darurat, yang wajib `confirm: true`). Pusat hanya menerima informasinya (operasi aktif, riwayat) untuk dipantau; Pusat tidak menangani insiden yang belum ditangani.
-- **JAGA Pusat** menangani hal yang tidak bisa diselesaikan di tingkat desa: ketersediaan dan distribusi **kalung**, gateway, **akun**, data wilayah, **aturan prioritas**, **pengumuman** (ke seluruh desa atau ke desa tertentu), dan **kontak kepala desa** (nama + nomor yang dipakai untuk menghubungi desa). Desa dan Rescue melaporkannya lewat menu **Kendala teknis**.
+- **JAGA Pusat** menangani hal yang tidak bisa diselesaikan di tingkat desa: ketersediaan dan distribusi **kalung**, gateway, **akun**, data wilayah, **aturan prioritas**, **pengumuman** (ke JAGA Desa dan JAGA Rescue, seluruh desa atau desa tertentu; warga berkalung tidak menerima pesan karena alarm kalung sudah berupa suara, getar, dan lampu). JAGA Desa juga dapat membuat pesan yang diteruskan ke JAGA Rescue (`source_role = DESA`), dan **kontak kepala desa** (nama + nomor yang dipakai untuk menghubungi desa). Desa dan Rescue melaporkannya lewat menu **Kendala teknis**.
 - **Alur kalung:**
   1. **Input:** JAGA Pusat mendaftarkan kalung ke sistem. Di lingkungan produksi, ini dilakukan secara massal (bulk import CSV atau via API dari pabrik), bukan satu per satu.
   2. **Key (Kunci):** Key yang dihasilkan saat kalung didaftarkan adalah token rahasia (secret) yang dimasukkan ke dalam firmware kalung agar dapat terautentikasi secara aman ke MQTT broker/server JAGA.
@@ -474,7 +474,7 @@ Tingkat peringatan memakai istilah BMKG/BNPB: **Normal, Waspada, Siaga, Awas**. 
 | FR-1.4 | Ekspor laporan CSV/PDF | Ada | Pusat: Laporan (CSV dan cetak/PDF) |
 | FR-1.5 | Konfigurasi global dan penyebaran versi | Ada | Pusat: Platform & data (pengaturan, versi aplikasi, sebaran firmware) |
 | FR-1.6 | Tata kelola data sensitif (NIK tidak terlihat Desa/Rescue) | Ada | Pusat: Platform & data (matriks akses, persetujuan, akses Rescue); NIK tidak punya antarmuka |
-| FR-1.7 | Pengumuman ke semua Desa | Ada | Pusat: Pengumuman |
+| FR-1.7 | Pengumuman ke semua Desa dan Rescue | Ada | Pusat: Pengumuman |
 | FR-1.8 | Log audit | Ada | Pusat: Log audit |
 | FR-1.9 | Pusat tidak dapat membunyikan alarm | Ada | `POST /api/alerts` hanya JAGA Desa |
 | FR-2.1 | Login tim desa serentak | Ada | Beberapa akun Desa per desa, sesi independen |

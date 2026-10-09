@@ -140,6 +140,40 @@ export async function createDevice(ctx: Ctx) {
   return { ...deviceShape(device), deviceKey: key, note: "Kunci hanya ditampilkan sekali. Simpan di perangkat." };
 }
 
+/** Mendaftarkan satu batch inventaris. Kunci dikembalikan sekali agar dapat diprogram ke firmware dan diunduh sebagai CSV. */
+export async function createDevicesBulk(ctx: Ctx) {
+  requireRole(ctx.session, ["PUSAT"], "Hanya JAGA Pusat yang dapat mendaftarkan kalung");
+  const count = Number(ctx.body.count);
+  if (!Number.isInteger(count) || count < 1 || count > 1000) throw badRequest("Jumlah kalung harus antara 1 dan 1000");
+  const prefix = clean(ctx.body.prefix || "JAGA").toUpperCase();
+  if (!/^[A-Z0-9-]{2,24}$/.test(prefix)) throw badRequest("Awalan ID hanya boleh huruf, angka, atau tanda hubung (2–24 karakter)");
+  const start = Number(ctx.body.start ?? 1);
+  if (!Number.isInteger(start) || start < 0 || start > 9_999_999) throw badRequest("Nomor awal tidak valid");
+  const pad = Math.max(3, String(start + count - 1).length);
+  const ids = Array.from({ length: count }, (_, index) => `${prefix}-${String(start + index).padStart(pad, "0")}`);
+  if (new Set(ids).size !== ids.length) throw badRequest("Ada ID kalung yang berulang dalam batch");
+  const existing = await ctx.store.list("devices", { in: { id: ids } });
+  if (existing.length) throw conflict(`ID perangkat sudah dipakai: ${existing.slice(0, 5).map(row => row.id).join(", ")}${existing.length > 5 ? "…" : ""}`);
+  const villageRaw = clean(ctx.body.villageId);
+  const villageId = villageRaw ? requireUuid(villageRaw, "Desa") : null;
+  if (villageId && !(await ctx.store.one("villages", { eq: { id: villageId } }))) throw badRequest("Desa tidak ditemukan");
+  const model = optionalText(ctx.body.model, "Model", 80) ?? "JAGA Rumah v1";
+  const created = [] as Array<{ id: string; deviceKey: string }>;
+  for (const id of ids) {
+    const key = newDeviceKey();
+    await ctx.store.insert("devices", {
+      id, village_id: villageId, owner_name: "", model, status: "STOCK", battery: 100, online: false,
+      last_seen_at: nowIso(), auth_key_hash: sha256Hex(key), created_at: nowIso(), updated_at: nowIso()
+    });
+    created.push({ id, deviceKey: key });
+  }
+  await record(ctx.store, {
+    actorId: ctx.session.profileId, action: "DEVICE_BULK_CREATE", entityType: "devices", entityId: ids[0],
+    summary: `Mendaftarkan ${count} kalung ${prefix} ke ${villageId ? "desa" : "gudang Pusat"}`
+  });
+  return { count, devices: created, note: "Kunci hanya ditampilkan sekali. Unduh dan simpan CSV sebelum menutup jendela." };
+}
+
 /** Pusat memindahkan kalung dari gudang ke desa, antar desa, atau menariknya kembali ke gudang (villageId kosong). */
 export async function distributeDevice(ctx: Ctx) {
   requireRole(ctx.session, ["PUSAT"], "Hanya JAGA Pusat yang dapat mendistribusikan kalung");

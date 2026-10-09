@@ -562,3 +562,19 @@ Perubahan: istilah tingkat BMKG/BNPB (Normal, Waspada, Siaga, Awas; enum `EVAKUA
 Hasil uji: smoke 232/232, browser 116/116 (dua kali berturut-turut). Uji Supabase untuk fitur baru belum dijalankan; menunggu migrasi `202610080001` dan `202610080002` diterapkan, seed ulang, lalu `scripts/uji/supabase.mjs`.
 
 Catatan keamanan: pengerahan tim oleh Desa dan alarm hanya oleh role Desa; Pusat tidak dapat membunyikan alarm; data medis, kontak, dan GPS bagi Rescue hanya selama operasi aktif, mengikuti kebijakan Pusat, dan tercatat di audit. Sensor dan gateway memakai kunci hash terpisah (`snk_`, `gtw_`) dan gateway terbatas pada desanya.
+
+# 21. Pengumuman khusus Rescue, instruksi Desa, dan perbaikan logika (9 Okt 2026)
+
+Keputusan produk: JAGA Pusat mengirim informasi dan pengumuman (biasa atau penting) ke JAGA Desa dan JAGA Rescue; JAGA Desa dapat membuat pengumuman atau pesan yang diteruskan ke JAGA Rescue. Warga berkalung tidak menerima pesan karena alarm kalung sudah berupa suara, getar, dan lampu. Pusat cukup memantau kondisi desa. Tujuan "per kabupaten" tidak dipakai.
+
+| # | Temuan | Perbaikan |
+|---|---|---|
+| 1 | "Pesan instruksi untuk Tim Rescue" dari Desa disimpan di `alert_commands.message` tetapi tidak pernah tampil di Rescue | `GET /api/operations` kini memuat `instruction` (pesan alarm terbaru) dan `updatedAt`; halaman Operasi Rescue menampilkannya. Alarm susulan pada operasi aktif memperbarui `alert_command_id` |
+| 2 | Desa tidak punya jalur membuat pengumuman atau pesan untuk Rescue, dan Desa/Rescue tidak punya halaman untuk membaca pengumuman | `POST /api/announcements` kini dapat dipakai Desa (selalu menuju Rescue di desanya, kolom baru `source_role`, migrasi `202610100002`); halaman **Pengumuman** ditambahkan untuk Desa dan Rescue; Desa hanya menghapus pesannya sendiri |
+| 3 | Cabang kode tujuan "per kabupaten" tidak terjangkau dari UI | Dihapus seluruhnya; tujuan hanya semua desa atau desa tertentu |
+| 4 | Widget cuaca memakai koordinat Jakarta | Memakai koordinat desa (bawaan Aceh Utara) |
+| 5 | Tata letak beranda Desa memakai 3 kolom tetap, rusak di layar kecil | `auto-fit` |
+| 6 | Pusat tidak melihat tinggi air, catatan, dan waktu pembaruan dengan jelas | Tabel operasi aktif memuat tinggi air, waktu pembaruan, catatan; Monitoring desa memuat tingkat dan tinggi air |
+| 7 | `PATCH /incidents/:id/status` mengembalikan bentuk berbeda bila status tidak berubah | Selalu `{ incident, message }` |
+
+Verifikasi: `npm run check` bersih, smoke 221/221, uji keamanan 0 temuan (dijalankan sebelum fitur pesan Desa ditambahkan). Migrasi `202610100002_pengumuman_dari_desa.sql` harus dijalankan di Supabase sebelum fitur ini dipakai di sana. Uji browser (`scripts/uji/peran.mjs`) dan Supabase belum dijalankan ulang.

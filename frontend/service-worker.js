@@ -1,4 +1,4 @@
-const CACHE = 'jaga-shell-v28';
+const CACHE = 'jaga-shell-v31';
 const TILE_CACHE = 'jaga-tiles-v1';
 // Ubin peta disimpan setelah pernah dilihat atau diunduh lewat "Unduh peta offline", supaya peta tetap tampil tanpa internet.
 const TILE_HOSTS = new Set(['tile.openstreetmap.org', 'server.arcgisonline.com']);

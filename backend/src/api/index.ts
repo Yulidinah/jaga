@@ -113,6 +113,7 @@ export function buildRouter(): Router {
   /* ---------------------------------------------------------- Perangkat */
   router.get("/api/devices", devices.listDevices, { roles: ["PUSAT", "DESA"] });
   router.post("/api/devices", devices.createDevice, { roles: ["PUSAT"], status: 201 });
+  router.post("/api/devices/bulk", devices.createDevicesBulk, { roles: ["PUSAT"], status: 201 });
   router.post("/api/devices/:id/distribute", devices.distributeDevice, { roles: ["PUSAT"] });
   router.patch("/api/devices/:id", devices.updateDevice, { roles: ["PUSAT", "DESA"] });
   router.post("/api/devices/:id/assign", devices.assignDevice, { roles: ["PUSAT", "DESA"], status: 201 });
@@ -126,8 +127,8 @@ export function buildRouter(): Router {
   router.get("/api/governance", platform.governance, { roles: ["PUSAT"] });
   router.get("/api/village-status", platform.villageStatus, { roles: ["PUSAT"] });
   router.get("/api/announcements", platform.listAnnouncements);
-  router.post("/api/announcements", platform.createAnnouncement, { roles: ["PUSAT"], status: 201 });
-  router.delete("/api/announcements/:id", platform.deleteAnnouncement, { roles: ["PUSAT"] });
+  router.post("/api/announcements", platform.createAnnouncement, { roles: ["PUSAT", "DESA"], status: 201 });
+  router.delete("/api/announcements/:id", platform.deleteAnnouncement, { roles: ["PUSAT", "DESA"] });
   router.post("/api/operations/:id/reports", platform.createReport, { roles: ["RESCUE"], status: 201 });
   router.get("/api/operation-reports", platform.listReports);
   router.get("/api/operations/:id/coverage", platform.operationCoverage);

@@ -259,7 +259,7 @@ export async function updateIncidentStatus(ctx: Ctx) {
   assertVillageAccess(ctx.session, incident.village_id);
   const next = oneOf(ctx.body.status, STATUSES, "Status insiden");
   const previous = String(incident.status);
-  if (previous === next) return incident;
+  if (previous === next) return { incident, message: statusLabel(next) };
   if (CLOSED.has(previous) && !CLOSED.has(next)) {
     throw conflict("Insiden yang sudah ditutup tidak dapat diaktifkan kembali. Buat laporan baru.");
   }

@@ -281,6 +281,9 @@ async function shapeOperations(store: Store, rows: Row[]) {
   const villageIds = Array.from(new Set(rows.map(row => String(row.village_id))));
   const villages = villageIds.length ? await listIn(store, "villages", "id", villageIds) : [];
   const villageMap = indexBy(villages, row => String(row.id));
+  const commandIds = Array.from(new Set(rows.map(row => row.alert_command_id).filter(Boolean).map(String)));
+  const commands = commandIds.length ? await listIn(store, "alert_commands", "id", commandIds) : [];
+  const commandMap = indexBy(commands, row => String(row.id));
   return rows.map(row => {
     return {
       id: row.id,
@@ -293,6 +296,8 @@ async function shapeOperations(store: Store, rows: Row[]) {
       waterLevelCm: row.water_level_cm ?? null,
       note: row.note ?? null,
       alertCommandId: row.alert_command_id ?? null,
+      instruction: row.alert_command_id ? (commandMap.get(String(row.alert_command_id))?.message ?? null) : null,
+      updatedAt: row.updated_at ?? row.opened_at,
       openedBy: row.opened_by ?? null,
       openedAt: row.opened_at,
       closedAt: row.closed_at ?? null,
@@ -326,6 +331,7 @@ export async function openOrEscalateOperation(ctx: Ctx, input: OpenInput): Promi
 
   const escalate = async (existing: Row): Promise<Row> => {
     const patch: Row = {
+      alert_command_id: input.commandId,
       severity: (SEVERITY_RANK[input.severity] ?? 0) > (SEVERITY_RANK[String(existing.severity)] ?? 0) ? input.severity : existing.severity,
     };
     if (waterLevel !== null) patch.water_level_cm = waterLevel;
