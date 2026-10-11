@@ -241,6 +241,18 @@ const residentSeed: ResidentSeed[] = [
     evacuation: "Suami merantau; tinggal sendiri, butuh pendamping dan kendaraan bila air tinggi.",
     vulns: [["IBU_HAMIL", 3, "Tinggal sendiri; pantau dan siapkan transportasi."]],
     contacts: [["Hasniah", "Ibu", "0812-0000-0109", false]]
+  },
+  {
+    n: 10, cluster: 1, name: "Hj. Siti Aminah", birth: "1954-05-12", gender: "PEREMPUAN", at: [0.0002, 0.0003], alone: true,
+    ability: "TIDAK_BISA_SENDIRI", critical: true,
+    mobility: "Pasca-stroke, mobilitas sangat terbatas.", communication: "Bicara pelan, pendengaran baik.", medical: "Pasca-stroke; obat hipertensi rutin.",
+    evacuation: "Tinggal sendiri, tidak bisa mengungsi sendiri. Butuh tandu/kursi roda segera.",
+    vulns: [
+      ["LANSIA", 5, "Lanjut usia 72 tahun, tinggal sendiri."],
+      ["TUNADAKSA", 4, "Pasca-stroke, mobilitas terbatas."],
+      ["PENYAKIT_KRONIS", 4, "Obat rutin pasca-stroke."]
+    ],
+    contacts: [["Fatimah", "Anak", "0812-0000-0152", false]]
   }
 ];
 
@@ -254,6 +266,7 @@ const deviceSeed: Array<{ id: string; resident: number | null; battery: number; 
   { id: "JAGA-0007", resident: 7, battery: 82, online: true, status: "ASSIGNED" },
   { id: "JAGA-0008", resident: 8, battery: 88, online: true, status: "ASSIGNED" },
   { id: "JAGA-0009", resident: 9, battery: 23, online: true, status: "ASSIGNED" },
+  { id: "JAGA-052", resident: 10, battery: 85, online: true, status: "ASSIGNED" },
   { id: "JAGA-0020", resident: null, battery: 100, online: false, status: "STOCK" }
 ];
 

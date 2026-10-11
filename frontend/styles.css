@@ -488,9 +488,15 @@ select:hover { border-color: #ccd8cf; }
 .cell-input { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 11px; background: #fff; font: inherit; }
 .cell-input.num { width: 76px; text-align: center; font-weight: 700; }
 .cell-input:focus { outline: 0; border-color: var(--green-600); box-shadow: 0 0 0 4px rgba(47, 125, 78, .13); }
-.row-actions { white-space: nowrap; text-align: right; }
+.row-actions { white-space: nowrap; text-align: right; width: 1%; }
+.row-actions-group { display: inline-flex; flex-direction: row; flex-wrap: nowrap; gap: 6px; align-items: center; justify-content: flex-end; white-space: nowrap; }
 .btn.danger-text { color: var(--red); }
 .btn.danger-text:hover { background: var(--red-bg); border-color: #f3cbc7; }
+.btn.danger.outline, .btn.outline.danger { background: #fff; border-color: #f3cbc7; color: var(--red); }
+.btn.danger.outline:hover, .btn.outline.danger:hover { background: var(--red-bg); border-color: var(--red); color: #a82b22; }
+
+@keyframes pulseDot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(1.25); } }
+@keyframes pulseBg { 0%, 100% { background: #b3261e; } 50% { background: #d32f2f; } }
 
 /* Menu horizontal di ponsel: pudar di tepi kanan sebagai petunjuk masih dapat digeser */
 @media (max-width: 900px) { .side-nav { -webkit-mask-image: linear-gradient(to right, #000 88%, transparent); mask-image: linear-gradient(to right, #000 88%, transparent); padding-right: 28px; } }

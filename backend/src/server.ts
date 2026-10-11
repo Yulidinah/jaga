@@ -53,7 +53,8 @@ const STATIC_FILES: Record<string, string> = {
   "/auth.css": "auth.css",
   "/manifest.webmanifest": "manifest.webmanifest",
   "/logo_jaga.jpeg": "logo_jaga.jpeg",
-  "/service-worker.js": "service-worker.js"
+  "/service-worker.js": "service-worker.js",
+  "/firebase-bridge.js": "firebase-bridge.js"
 };
 
 const STATIC_DIRS: Record<string, string> = {
@@ -85,6 +86,21 @@ const resolveStatic = async (pathname: string): Promise<{ file: string; type: st
   return null;
 };
 
+const inariskHost = (() => { try { return config.inariskWmsUrl ? new URL(config.inariskWmsUrl).origin : ""; } catch { return ""; } })();
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ajax.googleapis.com https://www.gstatic.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  `img-src 'self' data: https://*.tile.openstreetmap.org https://tile.openstreetmap.org https://server.arcgisonline.com https://cdn.rawgit.com https://cdnjs.cloudflare.com${inariskHost ? ` ${inariskHost}` : ""}`,
+  `connect-src 'self' https://router.project-osrm.org https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://server.arcgisonline.com https://api.open-meteo.com https://cdn.jsdelivr.net https://*.firebasedatabase.app wss://*.firebasedatabase.app`,
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "media-src 'self' blob: data:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'"
+].join("; ");
+
 const serveStatic = async (res: ServerResponse, pathname: string): Promise<boolean> => {
   const target = await resolveStatic(pathname);
   if (!target) return false;
@@ -107,20 +123,6 @@ const serveStatic = async (res: ServerResponse, pathname: string): Promise<boole
     return false;
   }
 };
-
-const inariskHost = (() => { try { return config.inariskWmsUrl ? new URL(config.inariskWmsUrl).origin : ""; } catch { return ""; } })();
-const CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://ajax.googleapis.com",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  `img-src 'self' data: https://*.tile.openstreetmap.org https://tile.openstreetmap.org https://server.arcgisonline.com${inariskHost ? ` ${inariskHost}` : ""}`,
-  `connect-src 'self' https://router.project-osrm.org https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://server.arcgisonline.com https://api.open-meteo.com https://cdn.jsdelivr.net`,
-  "font-src 'self' data: https://fonts.gstatic.com",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'"
-].join("; ");
 
 /* ------------------------------------------------------------ Server */
 
@@ -192,6 +194,54 @@ const server = createServer(async (req, res) => {
       const extra = await handleDeviceRequest(req, url);
       const session = (await resolveSession(store, req)) ?? deviceSession(extra.device);
       await router.handle(req, res, store, () => Promise.resolve(session), { extra });
+      return;
+    }
+
+    if (url.pathname === "/api/iot/test" && method === "GET") {
+      const start = Date.now();
+      try {
+        const resp = await fetch("https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app/kalung/JAGA-052.json");
+        const data = await resp.json();
+        const latencyMs = Date.now() - start;
+        json(res, 200, { success: true, latencyMs, status: "CONNECTED", deviceId: "JAGA-052", data });
+      } catch (err: any) {
+        json(res, 502, { success: false, status: "DISCONNECTED", error: err?.message || "Gagal menghubungi Firebase RTDB" });
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/iot/status" && method === "GET") {
+      try {
+        const resp = await fetch("https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app/kalung/JAGA-052.json");
+        const data = await resp.json();
+        json(res, 200, { success: true, deviceId: "JAGA-052", data, timestamp: Date.now() });
+      } catch (err: any) {
+        json(res, 502, { success: false, error: err?.message || "Gagal menghubungi Firebase RTDB" });
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/iot/alarm" && method === "POST") {
+      try {
+        const body = (await readBody(req, 16 * 1024)) as { status?: string };
+        const status = body.status === "DARURAT" ? "DARURAT" : (body.status === "SIAGA" ? "SIAGA" : "AMAN");
+        const payload = status === "DARURAT"
+          ? { status_alarm: "DARURAT", sos: true, siaga: false, aman: false, last_active: Date.now() }
+          : status === "SIAGA"
+            ? { status_alarm: "SIAGA", sos: false, siaga: true, aman: false, last_active: Date.now() }
+            : { status_alarm: "AMAN", sos: false, siaga: false, aman: true, last_active: Date.now() };
+
+        const resp = await fetch("https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app/kalung/JAGA-052.json", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await resp.json();
+        publish("device.updated", { deviceId: "JAGA-052", status, data });
+        json(res, 200, { success: true, deviceId: "JAGA-052", status, updated: data });
+      } catch (err: any) {
+        json(res, 500, { success: false, error: err?.message || "Gagal mengirim status ke Firebase" });
+      }
       return;
     }
 

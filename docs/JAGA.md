@@ -713,3 +713,124 @@ Ambang warna aktif menentukan batas total skor kerentanan untuk pengelompokan pr
 - **JAGA Pusat**: Hanya melihat data agregat (jumlah warga rentan). Tidak melihat data detail/NIK warga.
 - **JAGA Desa**: Melihat data detail dan status warganya sendiri (karena mereka yang mendaftarkan), tapi NIK tetap disembunyikan/di-masking.
 - **JAGA Rescue**: Sama sekali diblokir dari melihat NIK dan privasi warga secara normal. Rescue baru diberi hak akses 30 hari ke data warga (lokasi rumah, kondisi medis, nomor darurat) HANYA saat status bencana (Siaga/Awas) aktif agar bisa mengevakuasi mereka.
+
+---
+
+# Integrasi Kalung IoT (Firebase Realtime Database Bridge)
+
+Dokumentasi ini menjelaskan langkah penyambungan antara firmware ESP32 teman (yang mengirim data ke Firebase RTDB) dengan sistem JAGA tanpa mengubah kode di mikrokontroler.
+
+## 1. Parameter Koneksi Firebase
+- **Database URL**: `https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app`
+- **Node Kalung**: `kalung/JAGA-052`
+- **Skema Data Node**:
+  - `lat` (number): Latitude GPS perangkat
+  - `lng` (number): Longitude GPS perangkat
+  - `sos` (boolean): `true` jika tombol darurat ditekan
+  - `siaga` (boolean): `true` jika alarm berstatus siaga
+  - `aman` (boolean): `true` jika kondisi normal
+  - `status_alarm` (string): `"AMAN"` | `"SIAGA"` | `"DARURAT"`
+
+---
+
+## 2. Alur Kerja Jembatan (Bridge Workflow)
+
+```
+[ ESP32 Kalung ]
+      │ (Kirim telemetry & tombol SOS)
+      ▼
+[ Firebase RTDB: kalung/JAGA-052 ]
+      ▲
+      │ (Listen value realtime & kirim balik perintah alarm)
+      ▼
+[ JAGA Web System ]
+      ├── Update posisi GPS marker pada Peta Leaflet
+      ├── Pemicuan insiden SOS otomatis
+      └── Kendali status alarm (AMAN / SIAGA / DARURAT) balik ke kalung
+```
+
+---
+
+## 3. Langkah-Langkah Penerapan
+
+### Langkah 1: Memuat SDK Firebase di Web
+Tambahkan library Firebase compat pada `frontend/index.html` sebelum script aplikasi:
+```html
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+```
+
+### Langkah 2: Inisialisasi Listener di Frontend (`frontend/app.js` atau modul terpisah)
+Buat modul koneksi untuk memantau data kalung:
+```javascript
+const firebaseConfig = {
+  databaseURL: "https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app"
+};
+if (!firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
+const db = firebase.database();
+const kalungRef = db.ref('kalung/JAGA-052');
+
+// Listener perubahan realtime dari kalung
+kalungRef.on('value', (snapshot) => {
+  const data = snapshot.val();
+  if (!data) return;
+
+  // 1. Update koordinat ke peta jika ada perubahan posisi
+  if (data.lat !== undefined && data.lng !== undefined) {
+    if (window.jagaMapUpdateDevice) {
+      window.jagaMapUpdateDevice('JAGA-052', data.lat, data.lng);
+    }
+  }
+
+  // 2. Tangani status darurat (SOS)
+  if (data.sos === true || data.status_alarm === 'DARURAT') {
+    if (window.jagaTriggerSosAlert) {
+      window.jagaTriggerSosAlert('JAGA-052', data.lat, data.lng);
+    }
+  }
+});
+```
+
+### Langkah 3: Mengirim Perintah Balik ke Kalung (Kendali Alarm)
+Fungsi kontrol untuk mengubah status kalung dari tombol desa/rescue:
+```javascript
+// Kirim status AMAN ke ESP32
+function sendAlarmAman() {
+  kalungRef.update({
+    status_alarm: "AMAN",
+    sos: false,
+    siaga: false,
+    aman: true
+  });
+}
+
+// Kirim status SIAGA ke ESP32
+function sendAlarmSiaga() {
+  kalungRef.update({
+    status_alarm: "SIAGA",
+    sos: false,
+    siaga: true,
+    aman: false
+  });
+}
+
+// Kirim status DARURAT ke ESP32
+function sendAlarmDarurat() {
+  kalungRef.update({
+    status_alarm: "DARURAT",
+    sos: true,
+    siaga: false,
+    aman: false
+  });
+}
+```
+
+---
+
+## 4. Keuntungan Pendekatan Bridge
+1. **Firmware ESP32 tetap 100%**: Tidak memerlukan kompilasi ulang maupun perubahan kode pada Arduino IDE.
+2. **Sistem JAGA tetap utuh**: Seluruh modul autentikasi, basis data warga, dan algoritma prioritas evakuasi tetap menjadi pengendali utama.
+3. **Komunikasi dua arah terverifikasi**: Perangkat kalung menerima pembaruan status alarm langsung saat petugas desa atau rescue mengubah status di dashboard.
+

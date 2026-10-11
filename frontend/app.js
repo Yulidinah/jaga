@@ -88,6 +88,7 @@ const state = {
   }
 };
 const D = state.data;
+window.jagaState = state;
 
 const ownVillageId = () => state.session?.villageIds?.[0] || D.villages[0]?.id || '';
 const villageName = id => D.villages.find(v => v.id === id)?.name || '—';
@@ -257,7 +258,7 @@ function residentsView({ canAdd, withVillage }) {
   const rowCells = r => `<td><div class="cell-flex"><span class="avatar-sm">${esc(initials(r.fullName))}</span><div><b>${esc(r.fullName)}</b><small>${r.age != null ? `${r.age} th` : 'Usia —'} · ${r.livesAlone ? 'tinggal sendiri' : 'bersama keluarga'}</small></div></div></td>
       <td>${groupChips(r.vulnerabilities)}</td>
       <td>${abilityBadge(r.evacuationAbility)}${r.timeCriticalMedical ? `<small><b>Medis mendesak</b></small>` : ''}</td>
-      <td>${r.deviceId ? badge(r.deviceId, 'green', true) : badge('Belum berkalung', 'gray', true)}</td>${canAdd ? `<td class="row-actions" style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end">${r.deviceId ? `<button class="btn sm danger outline" data-action="device-unbind" data-id="${esc(r.id)}">Lepas</button>` : `<button class="btn sm primary" data-action="open-modal" data-modal="device-assign" data-id="${esc(r.id)}">Pasang</button>`} <button class="btn outline sm" data-action="edit-resident" data-id="${esc(r.id)}">Ubah</button> <button class="btn outline sm danger-text" data-action="delete-resident" data-id="${esc(r.id)}" data-name="${esc(r.fullName)}">Hapus</button></td>` : ''}`;
+      <td>${r.deviceId ? (r.deviceId === 'JAGA-052' ? `<span class="badge green" title="ESP32 Live IoT"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#2f7d4e;margin-right:4px;animation:pulseDot 1.2s infinite"></span>${esc(r.deviceId)}</span>` : badge(r.deviceId, 'green', true)) : badge('Belum berkalung', 'gray', true)}</td>${canAdd ? `<td class="row-actions" style="width:1%;white-space:nowrap;text-align:right"><div class="row-actions-group">${r.deviceId ? `<button class="btn sm danger outline" data-action="device-unbind" data-id="${esc(r.id)}">Lepas</button>` : `<button class="btn sm primary" data-action="open-modal" data-modal="device-assign" data-id="${esc(r.id)}">Pasang</button>`} <button class="btn outline sm" data-action="edit-resident" data-id="${esc(r.id)}">Ubah</button> <button class="btn outline sm danger-text" data-action="delete-resident" data-id="${esc(r.id)}" data-name="${esc(r.fullName)}">Hapus</button></div></td>` : ''}`;
   const rowHtml = r => `<tr class="group-member">${rowCells(r)}</tr>`;
   let body;
   if (!rows.length) body = empty('Tidak ada warga yang cocok', 'Ubah kata kunci atau filter.', 'users');
