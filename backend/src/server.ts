@@ -3,12 +3,12 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { buildRouter } from "./api/index.js";
 import { applyPlatformSettings } from "./api/platform-api.js";
-import { notify } from "./audit.js";
+import { clearAuditRing, notify } from "./audit.js";
 import { authenticateDevice, authenticateGateway, resolveSession, usingEphemeralSessionSecret } from "./auth.js";
 import { config, projectRoot } from "./config.js";
 import { HttpError, json, nowIso, readBody } from "./lib.js";
 import { addSubscriber, publish } from "./realtime.js";
-import { createStore } from "./store-boot.js";
+import { createStore, resetStore } from "./store-boot.js";
 import type { Store } from "./store.js";
 import type { Row, Session } from "./types.js";
 
@@ -242,6 +242,30 @@ const server = createServer(async (req, res) => {
         json(res, 200, { success: true, deviceId: "JAGA-052", status, updated: data });
       } catch (err: any) {
         json(res, 500, { success: false, error: err?.message || "Gagal mengirim status ke Firebase" });
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/reset-data" && (method === "POST" || method === "GET")) {
+      try {
+        await resetStore(store);
+        clearAuditRing();
+        // Pastikan kalung JAGA-052 di Firebase RTDB direset ke AMAN
+        await fetch("https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app/kalung/JAGA-052.json", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status_alarm: "AMAN",
+            sos: false,
+            siaga: false,
+            aman: true,
+            last_active: Date.now()
+          })
+        }).catch(() => undefined);
+        publish("device.updated", { deviceId: "JAGA-052", status: "AMAN", state: "AMAN", online: true });
+        json(res, 200, { success: true, message: "Seluruh data riwayat pengujian berhasil direset ke kondisi awal bersih." });
+      } catch (err: any) {
+        json(res, 500, { success: false, error: err?.message || "Gagal mereset data" });
       }
       return;
     }

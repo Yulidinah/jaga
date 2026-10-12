@@ -14,6 +14,13 @@ async function memoryStore(reason: string): Promise<Store> {
   return memory;
 }
 
+export async function resetStore(currentStore: Store): Promise<void> {
+  if (currentStore instanceof MemoryStore) {
+    await loadDemoData(currentStore);
+    if (process.env.JAGA_TEST_FIXTURES === "true") await addIsolationFixture(currentStore);
+  }
+}
+
 /**
  * Menyiapkan penyimpanan aplikasi.
  *

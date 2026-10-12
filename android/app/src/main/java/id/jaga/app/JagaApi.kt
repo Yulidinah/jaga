@@ -36,7 +36,7 @@ data class Session(
 )
 
 /** Semua respons backend dibungkus {"data": ...}; daftar berpaginasi berbentuk {"data": {"data": [...]}}. */
-class JagaApi(private val baseUrl: String = BuildConfig.API_BASE) {
+class JagaApi(var baseUrl: String = BuildConfig.API_BASE) {
     var token: String? = null
 
     suspend fun login(email: String, password: String): Session = withContext(Dispatchers.IO) {

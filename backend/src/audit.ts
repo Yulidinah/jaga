@@ -44,6 +44,7 @@ export async function record(store: Store, input: AuditInput): Promise<void> {
 export const actorOf = (session: Session | null): string | null => (session && isUuid(session.profileId) ? session.profileId : null);
 
 export const recentAudit = (limit = 50): Array<Row & { at: string }> => ring.slice(0, Math.min(limit, RING_LIMIT));
+export const clearAuditRing = () => { ring.length = 0; };
 
 /* ------------------------------------------------------------- Notifikasi */
 

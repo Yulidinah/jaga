@@ -98,12 +98,12 @@
       document.body.appendChild(toast);
     }
     toast.textContent = msg;
-    toast.style.background = isError ? '#c8372d' : '#123a29';
-    toast.style.color = '#fff';
-    toast.classList.add('visible');
-    setTimeout(() => {
-      toast.classList.remove('visible');
-    }, 3500);
+    toast.className = `toast show${isError ? ' error' : ''}`;
+    toast.style.zIndex = '99999';
+    clearTimeout(window._jagaToastTimer);
+    window._jagaToastTimer = setTimeout(() => {
+      toast.className = 'toast';
+    }, 4000);
   }
 
   // 3. Uji Koneksi IoT
@@ -181,7 +181,7 @@
   };
 
   // 4. Kontrol Alarm (Dual-Channel: Backend Server + Firebase REST + SDK)
-  window.setKalungAlarm = async function (status) {
+  window.setKalungAlarm = async function (status, isDesaBroadcast = false) {
     initAudio();
 
     const btnDarurat = document.getElementById('jaga-btn-alarm-darurat');
@@ -214,6 +214,8 @@
       aman: true,
       last_active: Date.now()
     };
+
+    window._jagaDesaBroadcastTrigger = Boolean(isDesaBroadcast && (status === 'DARURAT' || status === 'SIAGA'));
 
     // Respon UI langsung (responsif & instan)
     currentData.status_alarm = payload.status_alarm;
@@ -335,6 +337,30 @@
   // 6. Floating Widget & Banner Darurat
   function ensureWidgets() {
     // Banner Darurat SOS
+    // Navigasi ke Peta dan Pusatkan ke Kalung
+    const focusKalungOnMap = () => {
+      const lat = Number(currentData.lat || -5.54829);
+      const lng = Number(currentData.lng || 95.323753);
+
+      if (!location.hash.includes('peta') && !location.hash.includes('operasi')) {
+        location.hash = '#/peta';
+      }
+
+      setTimeout(() => {
+        const maps = (window.jagaState && window.jagaState.maps) ? window.jagaState.maps : [];
+        if (maps.length) {
+          maps.forEach(m => {
+            try {
+              m.invalidateSize();
+              m.setView([lat, lng], 17);
+              if (m._jagaLiveMarker) m._jagaLiveMarker.openPopup();
+            } catch (e) {}
+          });
+        }
+      }, 300);
+    };
+
+    // Top Emergency Banner
     let sosBanner = document.getElementById('jaga-firebase-sos-banner');
     if (!sosBanner) {
       sosBanner = document.createElement('div');
@@ -356,12 +382,12 @@
         font-family: inherit;
       `;
       sosBanner.innerHTML = `
-        <div style="display:flex; align-items:center; gap:12px;">
-          <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#fff; animation:pulseDot 1s infinite;"></span>
-          <b style="font-size:15px; letter-spacing:0.02em;">PERINGATAN DARURAT (SOS) DARI KALUNG FISIK ${DEVICE_ID}!</b>
-          <span style="opacity:0.9; font-size:13px;">— ${OWNER_NAME}</span>
+        <div style="display:flex; align-items:center; gap:12px; min-width:0; flex:1;">
+          <span style="display:inline-block; width:10px; height:10px; min-width:10px; border-radius:50%; background:#fff; animation:pulseDot 1s infinite;"></span>
+          <b id="jaga-banner-title" style="font-size:14.5px; letter-spacing:0.02em;">PERINGATAN DARURAT (SOS) DARI KALUNG FISIK ${DEVICE_ID}!</b>
+          <span id="jaga-banner-sub" style="opacity:0.9; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">— ${OWNER_NAME}</span>
         </div>
-        <div style="display:flex; gap:10px;">
+        <div style="display:flex; gap:10px; margin-left:14px; flex-shrink:0;">
           <button id="jaga-btn-focus-map" style="padding:6px 14px; border-radius:8px; border:1px solid #fff; background:transparent; color:#fff; font-weight:700; cursor:pointer;">Lihat di Peta</button>
           <button id="jaga-btn-reset-aman" style="padding:6px 14px; border-radius:8px; border:0; background:#fff; color:#b3261e; font-weight:700; cursor:pointer;">Matikan Sirine & Reset Aman</button>
         </div>
@@ -369,40 +395,34 @@
       document.body.appendChild(sosBanner);
 
       document.getElementById('jaga-btn-reset-aman').onclick = () => window.setKalungAlarm('AMAN');
-      document.getElementById('jaga-btn-focus-map').onclick = () => {
-        const maps = (window.jagaState && window.jagaState.maps) ? window.jagaState.maps : [];
-        if (maps.length && currentData.lat && currentData.lng) {
-          maps[0].setView([currentData.lat, currentData.lng], 16);
-        }
-      };
+      document.getElementById('jaga-btn-focus-map').onclick = focusKalungOnMap;
     }
 
-    // Floating Widget (Badge Telemetri ESP32)
+    // Floating Widget (Badge Telemetri ESP32) - Diletakkan di Kiri Bawah agar tidak menutupi popup notifikasi di Kanan Bawah
     let widget = document.getElementById('jaga-firebase-widget');
     if (!widget) {
       widget = document.createElement('div');
       widget.id = 'jaga-firebase-widget';
       widget.style.cssText = `
         position: fixed;
-        bottom: 20px;
-        right: 20px;
-        z-index: 9998;
+        bottom: 24px;
+        left: 24px;
+        z-index: 110;
         font-family: var(--font-body, system-ui, sans-serif);
       `;
       widget.innerHTML = `
-        <div id="jaga-widget-btn" style="display:flex; align-items:center; gap:8px; padding:10px 16px; border-radius:99px; background:#123a29; color:#fff; cursor:pointer; box-shadow:0 8px 24px rgba(18,58,41,0.25); border:1px solid rgba(255,255,255,0.15); transition:transform .15s;">
+        <div id="jaga-widget-btn" style="display:flex; align-items:center; gap:8px; padding:9px 15px; border-radius:99px; background:#123a29; color:#fff; cursor:pointer; box-shadow:0 8px 24px rgba(18,58,41,0.28); border:1px solid rgba(255,255,255,0.18); transition:transform .15s;">
           <span id="jaga-widget-dot" style="width:9px; height:9px; border-radius:50%; background:#3fae61;"></span>
-          <b style="font-size:12.5px; letter-spacing:0.04em;">ESP32: ${DEVICE_ID}</b>
+          <b style="font-size:12px; letter-spacing:0.04em;">ESP32: ${DEVICE_ID}</b>
           <span id="jaga-widget-status" style="font-size:11px; padding:2px 8px; border-radius:99px; background:rgba(255,255,255,0.15); font-weight:700;">AMAN</span>
         </div>
-        <div id="jaga-widget-panel" style="display:none; position:absolute; bottom:52px; right:0; width:310px; max-width:calc(100vw - 32px); box-sizing:border-box; background:#fff; border-radius:18px; box-shadow:0 12px 36px rgba(0,0,0,0.18); border:1px solid #e4e9e4; padding:18px; color:#14231b;">
+        <div id="jaga-widget-panel" style="display:none; position:absolute; bottom:48px; left:0; width:310px; max-width:calc(100vw - 32px); box-sizing:border-box; background:#fff; border-radius:18px; box-shadow:0 12px 36px rgba(0,0,0,0.18); border:1px solid #e4e9e4; padding:18px; color:#14231b;">
           <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #edf1ed; padding-bottom:10px; margin-bottom:12px;">
             <b style="font-size:14px; color:#17513a;">Telemetri Kalung Fisik</b>
             <span id="jaga-conn-status" style="font-size:11px; background:#e4efe7; color:#17513a; padding:2px 8px; border-radius:99px; font-weight:700;">Online</span>
           </div>
           <div style="font-size:12px; display:grid; gap:6px; color:#5b695f; margin-bottom:14px;">
             <div>ID Perangkat: <b style="color:#14231b;">${DEVICE_ID}</b></div>
-            <div>Warga: <b style="color:#14231b;">${OWNER_NAME}</b></div>
             <div>Status: <b id="jaga-panel-status" style="color:#2f7d4e;">AMAN</b></div>
             <div>GPS: <b id="jaga-panel-gps" style="color:#14231b;">-5.54829, 95.32375</b></div>
             <div>Sinkronisasi: <span id="jaga-panel-lastsync" style="color:#5b695f;">Memeriksa…</span></div>
@@ -433,6 +453,17 @@
     const sosBanner = document.getElementById('jaga-firebase-sos-banner');
     if (sosBanner) {
       sosBanner.style.display = isSos ? 'flex' : 'none';
+      const titleEl = document.getElementById('jaga-banner-title');
+      const subEl = document.getElementById('jaga-banner-sub');
+      if (titleEl) {
+        if (window._jagaDesaBroadcastTrigger) {
+          titleEl.innerText = `STATUS DARURAT SEDANG DIKIRIM KE SELURUH KALUNG (TERMASUK ${DEVICE_ID})!`;
+          if (subEl) subEl.innerText = '— Siaga / Evakuasi Aktif';
+        } else {
+          titleEl.innerText = `PERINGATAN DARURAT (SOS) DARI KALUNG FISIK ${DEVICE_ID}!`;
+          if (subEl) subEl.innerText = `— ${OWNER_NAME}`;
+        }
+      }
     }
 
     const dot = document.getElementById('jaga-widget-dot');

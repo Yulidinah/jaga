@@ -1545,6 +1545,9 @@ const ACTIONS = {
     if (!villageId) return toast('Desa tujuan belum ditentukan', true);
     button.disabled = true; button.textContent = 'Mengirim…';
     try {
+      if (typeof window.setKalungAlarm === 'function') {
+        window.setKalungAlarm('DARURAT', true);
+      }
       const result = await JagaApi.emergency({ villageId, confirm: true });
       closeModal();
       toast(`Sinyal darurat dikirim ke ${result.devicesReached} kalung · operasi Rescue dibuka`);
@@ -1556,6 +1559,10 @@ const ACTIONS = {
     const p = m.payload, button = $('#confirmSend');
     button.disabled = true; button.textContent = 'Mengirim…';
     try {
+      if (typeof window.setKalungAlarm === 'function') {
+        const espStatus = p.severity === 'AWAS' ? 'DARURAT' : 'SIAGA';
+        window.setKalungAlarm(espStatus, true);
+      }
       const body = p.target === 'ALL'
         ? { villageId: p.villageId, targetType: 'DESA', severity: p.severity, message: p.message, waterLevelCm: p.waterLevelCm, observationNote: p.note }
         : p.target.startsWith('GROUP:')

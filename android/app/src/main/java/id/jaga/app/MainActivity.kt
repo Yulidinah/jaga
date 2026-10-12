@@ -57,6 +57,7 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
     var session by mutableStateOf<Session?>(null)
     var incidents by mutableStateOf<List<Incident>>(emptyList())
     var iotStatus by mutableStateOf<IotDeviceStatus?>(null)
+    var serverHost by mutableStateOf(prefs.getString("serverHost", "192.168.1.26:3000") ?: "192.168.1.26:3000")
     var message by mutableStateOf("Memeriksa sesi...")
     var busy by mutableStateOf(false)
     private var poller: Job? = null
@@ -64,6 +65,7 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
     val role: String get() = session?.role ?: ""
 
     init {
+        updateApiBase()
         val token = prefs.getString("token", null)
         val name = prefs.getString("name", null)
         val role = prefs.getString("role", null)
@@ -77,6 +79,18 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
         } else {
             message = "Masuk untuk melihat panggilan SOS"
         }
+    }
+
+    fun setHost(host: String) {
+        val clean = host.trim().removePrefix("http://").removePrefix("https://").removeSuffix("/api").removeSuffix("/")
+        serverHost = clean
+        prefs.edit().putString("serverHost", clean).apply()
+        updateApiBase()
+    }
+
+    private fun updateApiBase() {
+        val host = if (serverHost.contains(":")) serverHost else "$serverHost:3000"
+        api.baseUrl = "http://$host/api"
     }
 
     fun login(email: String, password: String) = viewModelScope.launch {
@@ -263,6 +277,45 @@ private fun LoginScreen(vm: JagaViewModel) {
                         ),
                         shape = RoundedCornerShape(16.dp)
                     )
+                }
+
+                var showServerConfig by remember { mutableStateOf(false) }
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Server: ${vm.serverHost}",
+                            color = TextMuted,
+                            fontSize = 12.sp
+                        )
+                        TextButton(onClick = { showServerConfig = !showServerConfig }) {
+                            Text(
+                                if (showServerConfig) "Selesai" else "Ganti IP",
+                                color = JagaAccent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    if (showServerConfig) {
+                        TextField(
+                            value = vm.serverHost,
+                            onValueChange = { vm.setHost(it) },
+                            placeholder = { Text("Contoh: 192.168.1.26:3000") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            colors = TextFieldDefaults.colors(
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                focusedContainerColor = BgColor,
+                                unfocusedContainerColor = BgColor
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
                 }
 
                 Button(
