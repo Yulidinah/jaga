@@ -148,6 +148,20 @@ export async function createAlert(ctx: Ctx) {
     entityId: String(command.id), summary: `Peringatan ${severity} untuk ${targetType} ${target}`, after: command
   });
   publish("alert.created", { id: command.id, severity, message, targetType, target }, villageId);
+
+  // Teruskan ke prototipe kalung fisik ESP32 (JAGA-052) via Firebase RTDB
+  const espStatus = severity === "AWAS" ? "DARURAT" : "SIAGA";
+  fetch("https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app/kalung/JAGA-052.json", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      status_alarm: espStatus,
+      sos: espStatus === "DARURAT",
+      siaga: espStatus === "SIAGA",
+      aman: false,
+      last_active: Date.now()
+    })
+  }).catch(() => undefined);
   return {
     command,
     devicesReached: devices.length,
@@ -335,6 +349,19 @@ export async function activeAlarmFor(store: Ctx["store"], deviceId: string): Pro
 export async function releaseDeviceAlarm(store: Ctx["store"], deviceId: string): Promise<void> {
   const receipts = (await store.list("command_receipts", { eq: { device_id: deviceId } })).filter(row => !row.released_at);
   for (const row of receipts) await store.update("command_receipts", String(row.id), { released_at: nowIso() });
+  if (deviceId === "JAGA-052") {
+    fetch("https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app/kalung/JAGA-052.json", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status_alarm: "AMAN",
+        sos: false,
+        siaga: false,
+        aman: true,
+        last_active: Date.now()
+      })
+    }).catch(() => undefined);
+  }
 }
 
 /** Melepas seluruh alarm kalung di sebuah desa (dipakai saat operasi ditutup). */

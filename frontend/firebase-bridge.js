@@ -395,7 +395,7 @@
           <b style="font-size:12.5px; letter-spacing:0.04em;">ESP32: ${DEVICE_ID}</b>
           <span id="jaga-widget-status" style="font-size:11px; padding:2px 8px; border-radius:99px; background:rgba(255,255,255,0.15); font-weight:700;">AMAN</span>
         </div>
-        <div id="jaga-widget-panel" style="display:none; position:absolute; bottom:52px; right:0; width:310px; background:#fff; border-radius:18px; box-shadow:0 12px 36px rgba(0,0,0,0.18); border:1px solid #e4e9e4; padding:18px; color:#14231b;">
+        <div id="jaga-widget-panel" style="display:none; position:absolute; bottom:52px; right:0; width:310px; max-width:calc(100vw - 32px); box-sizing:border-box; background:#fff; border-radius:18px; box-shadow:0 12px 36px rgba(0,0,0,0.18); border:1px solid #e4e9e4; padding:18px; color:#14231b;">
           <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #edf1ed; padding-bottom:10px; margin-bottom:12px;">
             <b style="font-size:14px; color:#17513a;">Telemetri Kalung Fisik</b>
             <span id="jaga-conn-status" style="font-size:11px; background:#e4efe7; color:#17513a; padding:2px 8px; border-radius:99px; font-weight:700;">Online</span>

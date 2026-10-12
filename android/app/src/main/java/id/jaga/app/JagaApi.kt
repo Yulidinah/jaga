@@ -17,6 +17,17 @@ data class Incident(
     val createdAt: String
 )
 
+data class IotDeviceStatus(
+    val deviceId: String,
+    val statusAlarm: String,
+    val isSos: Boolean,
+    val isSiaga: Boolean,
+    val isAman: Boolean,
+    val latitude: Double,
+    val longitude: Double,
+    val online: Boolean
+)
+
 data class Session(
     val token: String,
     val displayName: String,
@@ -73,6 +84,31 @@ class JagaApi(private val baseUrl: String = BuildConfig.API_BASE) {
             )
         }
         JSONObject(read(connection)).getJSONObject("data").getInt("devicesReached")
+    }
+
+    suspend fun iotStatus(): IotDeviceStatus = withContext(Dispatchers.IO) {
+        val connection = open("/iot/status", "GET")
+        val json = JSONObject(read(connection))
+        val data = json.optJSONObject("data") ?: JSONObject()
+        IotDeviceStatus(
+            deviceId = json.optString("deviceId", "JAGA-052"),
+            statusAlarm = data.optString("status_alarm", "AMAN"),
+            isSos = data.optBoolean("sos", false),
+            isSiaga = data.optBoolean("siaga", false),
+            isAman = data.optBoolean("aman", true),
+            latitude = data.optDouble("lat", -5.54829),
+            longitude = data.optDouble("lng", 95.323753),
+            online = json.optBoolean("success", true)
+        )
+    }
+
+    suspend fun setIotAlarm(status: String) = withContext(Dispatchers.IO) {
+        val connection = open("/iot/alarm", "POST")
+        connection.outputStream.bufferedWriter().use {
+            it.write(JSONObject().put("status", status).toString())
+        }
+        read(connection)
+        Unit
     }
 
     private fun open(path: String, method: String): HttpURLConnection =

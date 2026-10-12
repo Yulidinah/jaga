@@ -53,6 +53,7 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
     private val api = JagaApi()
     var session by mutableStateOf<Session?>(null)
     var incidents by mutableStateOf<List<Incident>>(emptyList())
+    var iotStatus by mutableStateOf<IotDeviceStatus?>(null)
     var message by mutableStateOf("Memeriksa sesi...")
     var busy by mutableStateOf(false)
     private var poller: Job? = null
@@ -115,6 +116,7 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
                     }
                     .onFailure { message = "Koneksi terputus: ${it.message}" }
                     .isSuccess
+                runCatching { api.iotStatus() }.onSuccess { iotStatus = it }
                 wait = if (ok) 5_000L else minOf(wait * 2, 60_000L)
                 delay(wait)
             }
@@ -123,6 +125,18 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
 
     fun refresh() = viewModelScope.launch {
         runCatching { api.incidents() }.onSuccess { incidents = it }.onFailure { message = it.message ?: "Gagal memuat" }
+        runCatching { api.iotStatus() }.onSuccess { iotStatus = it }
+    }
+
+    fun triggerIotAlarm(status: String) = viewModelScope.launch {
+        busy = true
+        runCatching { api.setIotAlarm(status) }
+            .onSuccess {
+                message = "Sinyal $status terkirim ke kalung ESP32"
+                runCatching { api.iotStatus() }.onSuccess { iotStatus = it }
+            }
+            .onFailure { message = it.message ?: "Gagal mengirim ke kalung" }
+        busy = false
     }
 
     fun nextStatus(incident: Incident): String? = if (role == "RESCUE") {
@@ -310,6 +324,50 @@ private fun HomeScreen(vm: JagaViewModel) {
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                         ) {
                             Text(if (vm.busy) "Memproses..." else "Kirim Sinyal Siaga ke Kalung", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+            item {
+                val iot = vm.iotStatus
+                val isSos = iot?.isSos == true || iot?.statusAlarm == "DARURAT"
+                val isSiaga = iot?.isSiaga == true || iot?.statusAlarm == "SIAGA"
+                val statusColor = if (isSos) Danger else if (isSiaga) Color(0xFFE2700D) else JagaAccent
+                val statusText = iot?.statusAlarm ?: "AMAN"
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = SurfaceColor),
+                    shape = RoundedCornerShape(20.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(10.dp).background(statusColor, CircleShape))
+                            Spacer(Modifier.width(10.dp))
+                            Text("Kalung Fisik ESP32 (JAGA-052)", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = JagaGreen, modifier = Modifier.weight(1f))
+                            Box(modifier = Modifier.background(statusColor.copy(alpha = 0.15f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                Text(statusText, color = statusColor, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                        }
+                        Text("Pemakai: Hj. Siti Aminah (Prototipe ESP32)", color = TextMuted, fontSize = 13.sp)
+                        Text("GPS: ${iot?.latitude ?: -5.54829}, ${iot?.longitude ?: 95.323753}", color = TextMuted, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Button(
+                                onClick = { vm.triggerIotAlarm("DARURAT") },
+                                enabled = !vm.busy,
+                                colors = ButtonDefaults.buttonColors(containerColor = Danger),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Sinyal DARURAT", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = { vm.triggerIotAlarm("AMAN") },
+                                enabled = !vm.busy,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Reset AMAN", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = JagaGreen)
+                            }
                         }
                     }
                 }

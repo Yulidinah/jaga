@@ -3,6 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { buildRouter } from "./api/index.js";
 import { applyPlatformSettings } from "./api/platform-api.js";
+import { notify } from "./audit.js";
 import { authenticateDevice, authenticateGateway, resolveSession, usingEphemeralSessionSecret } from "./auth.js";
 import { config, projectRoot } from "./config.js";
 import { HttpError, json, nowIso, readBody } from "./lib.js";
@@ -301,6 +302,103 @@ server.listen(config.port, () => {
     const heartbeat = setInterval(beat, 5 * 60_000);
     heartbeat.unref();
   }
+
+  // Sinkronisasi dua arah real-time dengan Kalung Fisik ESP32 via Firebase RTDB
+  const FIREBASE_IOT_URL = "https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app/kalung/JAGA-052.json";
+  let lastKnownEspStatus = "AMAN";
+
+  const syncEsp32Hardware = async () => {
+    try {
+      const resp = await fetch(FIREBASE_IOT_URL, { signal: AbortSignal.timeout(4000) });
+      if (!resp.ok) return;
+      const data = (await resp.json()) as any;
+      if (!data) return;
+
+      const rawStatus = String(data.status_alarm || (data.sos ? "DARURAT" : (data.siaga ? "SIAGA" : "AMAN"))).toUpperCase();
+      const isSos = data.sos === true || rawStatus === "DARURAT";
+      const isAman = (data.aman === true || rawStatus === "AMAN") && !isSos;
+
+      // 1. Kalung ESP32 Ditekan Teman / SOS Aktif
+      if (isSos && lastKnownEspStatus !== "DARURAT") {
+        lastKnownEspStatus = "DARURAT";
+        const dev = await store.one("devices", { eq: { id: "JAGA-052" } });
+        const resId = dev?.resident_id;
+        const resident = resId ? await store.one("residents", { eq: { id: String(resId) } }) : null;
+        const vId = dev?.village_id || resident?.village_id;
+
+        const openIncident = await store.one("incidents", {
+          eq: { device_id: "JAGA-052" },
+          pred: row => !["SAFE", "CANCELLED", "CLOSED"].includes(String(row.status))
+        });
+
+        const lat = Number(data.lat ?? dev?.latitude ?? -5.54829);
+        const lng = Number(data.lng ?? dev?.longitude ?? 95.323753);
+        const now = nowIso();
+
+        if (!openIncident) {
+          const newInc = await store.insert("incidents", {
+            resident_id: resident?.id ?? null,
+            village_id: vId ?? null,
+            device_id: "JAGA-052",
+            owner_name: resident?.full_name ?? "Hj. Siti Aminah",
+            status: "NEW",
+            severity: "AWAS",
+            disaster_type: "SOS Kalung Fisik ESP32",
+            description: "Tombol SOS ditekan pada kalung fisik JAGA-052",
+            latitude: lat,
+            longitude: lng,
+            created_at: now
+          });
+
+          await notify(store, {
+            session: null,
+            incidentId: String(newInc.id),
+            channel: "IN_APP",
+            destination: String(vId ?? ""),
+            templateCode: "SOS",
+            villageId: vId ? String(vId) : null,
+            body: `🚨 SOS dari Kalung Fisik JAGA-052 (${resident?.full_name ?? "Hj. Siti Aminah"})! Koordinat: ${lat.toFixed(5)}, ${lng.toFixed(5)}`
+          });
+          publish("sos.created", { id: newInc.id, deviceId: "JAGA-052", residentId: resident?.id, severity: "AWAS", status: "NEW", latitude: lat, longitude: lng }, vId ? String(vId) : undefined);
+        }
+
+        await store.update("devices", "JAGA-052", {
+          online: true,
+          latitude: lat,
+          longitude: lng,
+          last_seen_at: now,
+          status: "ASSIGNED"
+        });
+        publish("device.updated", { deviceId: "JAGA-052", status: "DARURAT", state: "BANTUAN", online: true, latitude: lat, longitude: lng }, vId ? String(vId) : undefined);
+        console.log("[JAGA IoT Sync] Sinyal SOS terdeteksi dari kalung fisik JAGA-052");
+      }
+
+      // 2. Kalung ESP32 Dimatikan Teman / Reset ke AMAN
+      else if (isAman && lastKnownEspStatus === "DARURAT") {
+        lastKnownEspStatus = "AMAN";
+        const openIncidents = await store.list("incidents", {
+          eq: { device_id: "JAGA-052" },
+          pred: row => !["SAFE", "CANCELLED", "CLOSED"].includes(String(row.status))
+        });
+        for (const inc of openIncidents) {
+          await store.update("incidents", String(inc.id), { status: "SAFE" });
+          publish("incident.updated", { id: inc.id, status: "SAFE" }, inc.village_id ? String(inc.village_id) : undefined);
+        }
+        await store.update("devices", "JAGA-052", {
+          online: true,
+          last_seen_at: nowIso(),
+          status: "ASSIGNED"
+        });
+        publish("device.updated", { deviceId: "JAGA-052", status: "AMAN", state: "AMAN", online: true });
+        console.log("[JAGA IoT Sync] Kalung fisik JAGA-052 dimatikan / reset ke AMAN");
+      }
+    } catch {
+      // Abaikan kegagalan jaringan sementara
+    }
+  };
+
+  const iotSyncInterval = setInterval(syncEsp32Hardware, 2500);
+  iotSyncInterval.unref();
 });
 
 const shutdown = (signal: string) => {

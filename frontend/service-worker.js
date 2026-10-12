@@ -1,8 +1,8 @@
-const CACHE = 'jaga-shell-v31';
+const CACHE = 'jaga-shell-v32';
 const TILE_CACHE = 'jaga-tiles-v1';
 // Ubin peta disimpan setelah pernah dilihat atau diunduh lewat "Unduh peta offline", supaya peta tetap tampil tanpa internet.
 const TILE_HOSTS = new Set(['tile.openstreetmap.org', 'server.arcgisonline.com']);
-const SHELL = ['/', '/app', '/login', '/landing.css', '/auth.css', '/styles.css', '/app.js', '/api-client.js', '/manifest.webmanifest', '/assets/logo-mark.png', '/vendor/leaflet/leaflet.js', '/vendor/leaflet/leaflet.css'];
+const SHELL = ['/', '/app', '/login', '/landing.css', '/auth.css', '/styles.css', '/app.js', '/api-client.js', '/firebase-bridge.js', '/manifest.webmanifest', '/assets/logo-mark.png', '/vendor/leaflet/leaflet.js', '/vendor/leaflet/leaflet.css'];
 
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL))));
 self.addEventListener('activate', event => event.waitUntil(
