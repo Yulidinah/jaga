@@ -355,7 +355,7 @@ server.listen(config.port, () => {
           pred: row => !["SAFE", "CANCELLED", "CLOSED"].includes(String(row.status))
         });
 
-        const lat = Number(data.lat ?? dev?.latitude ?? -5.54829);
+        const lat = Number(data.lat ?? dev?.latitude ?? 5.54829);
         const lng = Number(data.lng ?? dev?.longitude ?? 95.323753);
         const now = nowIso();
 

@@ -339,7 +339,7 @@
     // Banner Darurat SOS
     // Navigasi ke Peta dan Pusatkan ke Kalung
     const focusKalungOnMap = () => {
-      const lat = Number(currentData.lat || -5.54829);
+      const lat = Number(currentData.lat || 5.54829);
       const lng = Number(currentData.lng || 95.323753);
 
       if (!location.hash.includes('peta') && !location.hash.includes('operasi')) {
@@ -424,7 +424,7 @@
           <div style="font-size:12px; display:grid; gap:6px; color:#5b695f; margin-bottom:14px;">
             <div>ID Perangkat: <b style="color:#14231b;">${DEVICE_ID}</b></div>
             <div>Status: <b id="jaga-panel-status" style="color:#2f7d4e;">AMAN</b></div>
-            <div>GPS: <b id="jaga-panel-gps" style="color:#14231b;">-5.54829, 95.32375</b></div>
+            <div>GPS: <b id="jaga-panel-gps" style="color:#14231b;">5.54829, 95.32375</b></div>
             <div>Sinkronisasi: <span id="jaga-panel-lastsync" style="color:#5b695f;">Memeriksa…</span></div>
           </div>
           <div style="display:grid; gap:8px;">
@@ -588,7 +588,7 @@
         'X-JAGA-Device-Key': 'jrk_bedb28ecaceb0da6d01a01da9d367065'
       },
       body: JSON.stringify({
-        latitude: lat || -5.54829,
+        latitude: lat || 5.54829,
         longitude: lng || 95.323753,
         gpsFix: true,
         description: 'Tombol SOS ditekan di kalung fisik JAGA-052'

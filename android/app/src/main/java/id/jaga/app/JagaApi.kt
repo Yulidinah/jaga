@@ -96,7 +96,7 @@ class JagaApi(var baseUrl: String = BuildConfig.API_BASE) {
             isSos = data.optBoolean("sos", false),
             isSiaga = data.optBoolean("siaga", false),
             isAman = data.optBoolean("aman", true),
-            latitude = data.optDouble("lat", -5.54829),
+            latitude = data.optDouble("lat", 5.54829),
             longitude = data.optDouble("lng", 95.323753),
             online = json.optBoolean("success", true)
         )

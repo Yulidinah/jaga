@@ -405,7 +405,7 @@ private fun HomeScreen(vm: JagaViewModel) {
                             }
                         }
                         Text("Pemakai: Hj. Siti Aminah (Prototipe ESP32)", color = TextMuted, fontSize = 13.sp)
-                        Text("GPS: ${iot?.latitude ?: -5.54829}, ${iot?.longitude ?: 95.323753}", color = TextMuted, fontSize = 12.sp)
+                        Text("GPS: ${iot?.latitude ?: 5.54829}, ${iot?.longitude ?: 95.323753}", color = TextMuted, fontSize = 12.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                             Button(
                                 onClick = { vm.triggerIotAlarm("DARURAT") },
