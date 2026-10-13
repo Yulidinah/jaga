@@ -17,6 +17,26 @@ data class Incident(
     val createdAt: String
 )
 
+data class Resident(
+    val id: String,
+    val fullName: String,
+    val age: Int,
+    val gender: String,
+    val evacuationAssistance: String,
+    val livingCondition: String,
+    val deviceCode: String?,
+    val villageName: String?
+)
+
+data class TechnicalTicket(
+    val id: String,
+    val title: String,
+    val category: String,
+    val status: String,
+    val villageName: String?,
+    val createdAt: String
+)
+
 data class IotDeviceStatus(
     val deviceId: String,
     val statusAlarm: String,
@@ -35,7 +55,7 @@ data class Session(
     val villageId: String?
 )
 
-/** Semua respons backend dibungkus {"data": ...}; daftar berpaginasi berbentuk {"data": {"data": [...]}}. */
+/** Klien HTTP Native yang terhubung langsung ke backend JAGA. */
 class JagaApi(var baseUrl: String = BuildConfig.API_BASE) {
     var token: String? = null
 
@@ -63,6 +83,67 @@ class JagaApi(var baseUrl: String = BuildConfig.API_BASE) {
         (0 until payload.length()).map { payload.getJSONObject(it).toIncident() }
     }
 
+    suspend fun residents(): List<Resident> = withContext(Dispatchers.IO) {
+        val connection = open("/residents?limit=200", "GET")
+        val data = JSONObject(read(connection)).get("data")
+        val payload: JSONArray = if (data is JSONArray) data else (data as JSONObject).getJSONArray("data")
+        (0 until payload.length()).map {
+            val obj = payload.getJSONObject(it)
+            Resident(
+                id = obj.getString("id"),
+                fullName = obj.getString("fullName"),
+                age = obj.optInt("age", 0),
+                gender = obj.optString("gender", "-"),
+                evacuationAssistance = obj.optString("evacuationAssistance", "INDEPENDENT"),
+                livingCondition = obj.optString("livingCondition", "ALONE"),
+                deviceCode = obj.optString("deviceCode", null).takeIf { c -> !c.isNullOrBlank() && c != "null" },
+                villageName = obj.optString("villageName", "Desa")
+            )
+        }
+    }
+
+    suspend fun tickets(): List<TechnicalTicket> = withContext(Dispatchers.IO) {
+        val connection = open("/tickets?limit=100", "GET")
+        val data = JSONObject(read(connection)).get("data")
+        val payload: JSONArray = if (data is JSONArray) data else (data as JSONObject).getJSONArray("data")
+        (0 until payload.length()).map {
+            val obj = payload.getJSONObject(it)
+            TechnicalTicket(
+                id = obj.getString("id"),
+                title = obj.getString("title"),
+                category = obj.optString("category", "DEVICE"),
+                status = obj.optString("status", "OPEN"),
+                villageName = obj.optString("villageName", "Desa"),
+                createdAt = obj.optString("createdAt", "")
+            )
+        }
+    }
+
+    suspend fun createResident(
+        fullName: String,
+        age: Int,
+        gender: String,
+        villageId: String,
+        evacuationAssistance: String,
+        livingCondition: String
+    ): Unit = withContext(Dispatchers.IO) {
+        val connection = open("/residents", "POST")
+        connection.outputStream.bufferedWriter().use {
+            it.write(
+                JSONObject()
+                    .put("fullName", fullName)
+                    .put("age", age)
+                    .put("gender", gender)
+                    .put("villageId", villageId)
+                    .put("evacuationAssistance", evacuationAssistance)
+                    .put("livingCondition", livingCondition)
+                    .toString()
+            )
+        }
+        read(connection)
+        Unit
+    }
+
     suspend fun updateIncident(id: String, status: String) = withContext(Dispatchers.IO) {
         val connection = open("/incidents/$id/status", "PATCH")
         connection.outputStream.bufferedWriter().use { it.write(JSONObject().put("status", status).toString()) }
@@ -70,7 +151,6 @@ class JagaApi(var baseUrl: String = BuildConfig.API_BASE) {
         Unit
     }
 
-    /** Mengembalikan jumlah perangkat yang menerima perintah (devicesReached). */
     suspend fun sendVillageAlert(villageId: String, severity: String, message: String): Int = withContext(Dispatchers.IO) {
         val connection = open("/alerts", "POST")
         connection.outputStream.bufferedWriter().use {
@@ -112,13 +192,13 @@ class JagaApi(var baseUrl: String = BuildConfig.API_BASE) {
     }
 
     private fun open(path: String, method: String): HttpURLConnection =
-        (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
+        (URL(baseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
-            connectTimeout = 5_000
-            readTimeout = 8_000
+            connectTimeout = 8_000
+            readTimeout = 12_000
             setRequestProperty("Content-Type", "application/json")
             token?.let { setRequestProperty("Authorization", "Bearer $it") }
-            doOutput = method == "POST" || method == "PATCH"
+            doOutput = method == "POST" || method == "PATCH" || method == "PUT"
         }
 
     private fun read(connection: HttpURLConnection): String {
