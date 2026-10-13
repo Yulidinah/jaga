@@ -41,6 +41,32 @@ private val BgColor = Color(0xFFF3F5F2)
 private val SurfaceColor = Color.White
 private val TextMuted = Color(0xFF5B695F)
 
+enum class AppLanguage { ID, EN }
+
+object Strings {
+    fun title(lang: AppLanguage) = if (lang == AppLanguage.ID) "JAGA Mobile" else "JAGA Mobile"
+    fun subtitle(lang: AppLanguage) = if (lang == AppLanguage.ID) "Peringatan & Respons Bencana Inklusif" else "Inclusive Disaster Alert & Response"
+    fun email(lang: AppLanguage) = if (lang == AppLanguage.ID) "Email operasional" else "Operational email"
+    fun password(lang: AppLanguage) = if (lang == AppLanguage.ID) "Kata sandi" else "Password"
+    fun login(lang: AppLanguage) = if (lang == AppLanguage.ID) "Masuk" else "Log In"
+    fun loggingIn(lang: AppLanguage) = if (lang == AppLanguage.ID) "Memverifikasi..." else "Verifying..."
+    fun logout(lang: AppLanguage) = if (lang == AppLanguage.ID) "Keluar" else "Log Out"
+    fun refresh(lang: AppLanguage) = if (lang == AppLanguage.ID) "Perbarui" else "Refresh"
+    fun alarmHeader(lang: AppLanguage) = if (lang == AppLanguage.ID) "Kontrol Alarm & Peringatan Desa" else "Village Alert & Alarm Control"
+    fun alarmSub(lang: AppLanguage) = if (lang == AppLanguage.ID) "Aktifkan sinyal darurat untuk memicu buzzer dan LED kalung seluruh warga di desa." else "Trigger emergency signals to activate buzzers and LEDs on all resident necklaces."
+    fun sendSiaga(lang: AppLanguage) = if (lang == AppLanguage.ID) "Kirim SIAGA" else "Broadcast ALERT (Siaga)"
+    fun sendAwas(lang: AppLanguage) = if (lang == AppLanguage.ID) "Kirim AWAS" else "Broadcast EVACUATE (Awas)"
+    fun deployTeamTitle(lang: AppLanguage) = if (lang == AppLanguage.ID) "Kerahkan Tim Rescue ke Insiden:" else "Deploy Rescue Team to Incident:"
+    fun tabAlarm(lang: AppLanguage) = if (lang == AppLanguage.ID) "Operasi / Alarm" else "Ops / Alarm"
+    fun tabResidents(lang: AppLanguage, count: Int) = if (lang == AppLanguage.ID) "Data Warga ($count)" else "Residents ($count)"
+    fun tabTickets(lang: AppLanguage, count: Int) = if (lang == AppLanguage.ID) "Kendala ($count)" else "Tickets ($count)"
+    fun testEmergency(lang: AppLanguage) = if (lang == AppLanguage.ID) "Test DARURAT" else "Test EMERGENCY"
+    fun resetSafe(lang: AppLanguage) = if (lang == AppLanguage.ID) "Reset AMAN" else "Reset SAFE"
+    fun closeCase(lang: AppLanguage) = if (lang == AppLanguage.ID) "Tutup Kasus" else "Close Case"
+    fun deployTeamBtn(lang: AppLanguage) = if (lang == AppLanguage.ID) "Kerahkan Tim" else "Deploy Team"
+    fun deviceLabel(lang: AppLanguage) = if (lang == AppLanguage.ID) "Kalung" else "Necklace"
+}
+
 class JagaViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         val prefs = context.getSharedPreferences("jaga_session", Context.MODE_PRIVATE)
@@ -55,10 +81,13 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
     var incidents by mutableStateOf<List<Incident>>(emptyList())
     var residents by mutableStateOf<List<Resident>>(emptyList())
     var tickets by mutableStateOf<List<TechnicalTicket>>(emptyList())
+    var teams by mutableStateOf<List<RescueTeam>>(emptyList())
     var iotStatus by mutableStateOf<IotDeviceStatus?>(null)
-    var currentTab by mutableStateOf("UTAMA") // "UTAMA", "WARGA", "KENDALA"
+    var currentTab by mutableStateOf("UTAMA")
+    var language by mutableStateOf(AppLanguage.valueOf(prefs.getString("lang", "ID") ?: "ID"))
     var message by mutableStateOf("Memeriksa sesi...")
     var busy by mutableStateOf(false)
+    var selectedIncidentForDeployment by mutableStateOf<Incident?>(null)
     private var poller: Job? = null
 
     val role: String get() = session?.role ?: ""
@@ -77,6 +106,11 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
         } else {
             message = "Masuk dengan akun organisasi JAGA"
         }
+    }
+
+    fun toggleLanguage() {
+        language = if (language == AppLanguage.ID) AppLanguage.EN else AppLanguage.ID
+        prefs.edit().putString("lang", language.name).apply()
     }
 
     fun login(email: String, password: String) = viewModelScope.launch {
@@ -106,6 +140,8 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
         incidents = emptyList()
         residents = emptyList()
         tickets = emptyList()
+        teams = emptyList()
+        selectedIncidentForDeployment = null
         message = "Sesi diakhiri. Silakan masuk kembali."
     }
 
@@ -118,6 +154,7 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
                     incidents = api.incidents()
                     if (role == "DESA" || role == "PUSAT") {
                         residents = api.residents()
+                        teams = api.teams()
                     }
                     if (role == "PUSAT") {
                         tickets = api.tickets()
@@ -126,10 +163,13 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
                 }.isSuccess
 
                 message = if (ok) {
-                    if (incidents.isEmpty()) "Area aman. Tidak ada panggilan SOS aktif."
-                    else "${incidents.size} panggilan darurat / SOS aktif."
+                    if (incidents.isEmpty()) {
+                        if (language == AppLanguage.ID) "Area aman. Tidak ada panggilan SOS aktif." else "Area safe. No active SOS signals."
+                    } else {
+                        if (language == AppLanguage.ID) "${incidents.size} panggilan darurat / SOS aktif." else "${incidents.size} active SOS emergency calls."
+                    }
                 } else {
-                    "Koneksi terputus. Mencoba menghubungkan kembali..."
+                    if (language == AppLanguage.ID) "Koneksi terputus. Mencoba menghubungkan kembali..." else "Disconnected. Reconnecting..."
                 }
 
                 wait = if (ok) 5_000L else minOf(wait * 2, 30_000L)
@@ -142,10 +182,13 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
         busy = true
         runCatching {
             incidents = api.incidents()
-            if (role == "DESA" || role == "PUSAT") residents = api.residents()
+            if (role == "DESA" || role == "PUSAT") {
+                residents = api.residents()
+                teams = api.teams()
+            }
             if (role == "PUSAT") tickets = api.tickets()
             iotStatus = api.iotStatus()
-            message = "Data berhasil diperbarui."
+            message = if (language == AppLanguage.ID) "Data berhasil diperbarui." else "Data refreshed successfully."
         }.onFailure {
             message = it.message ?: "Gagal memperbarui data"
         }
@@ -156,7 +199,7 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
         busy = true
         runCatching { api.setIotAlarm(status) }
             .onSuccess {
-                message = "Status alarm kalung diubah ke $status"
+                message = if (language == AppLanguage.ID) "Status alarm kalung diubah ke $status" else "Necklace alarm set to $status"
                 runCatching { iotStatus = api.iotStatus() }
             }
             .onFailure { message = it.message ?: "Gagal mengirim ke kalung" }
@@ -166,7 +209,7 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
     fun broadcastVillage(severity: String) = viewModelScope.launch {
         val villageId = session?.villageId
         if (villageId == null) {
-            message = "Akun ini belum terikat pada desa tertentu"
+            message = if (language == AppLanguage.ID) "Akun ini belum terikat pada desa tertentu" else "Account not linked to a village"
             return@launch
         }
         busy = true
@@ -176,8 +219,24 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
             else -> "Kondisi kembali normal dan terkendali."
         }
         runCatching { api.sendVillageAlert(villageId, severity, text) }
-            .onSuccess { message = "Sinyal $severity berhasil disiarkan ke $it kalung warga" }
+            .onSuccess {
+                message = if (language == AppLanguage.ID) "Sinyal $severity disiarkan ke $it kalung warga" else "Signal $severity sent to $it necklaces"
+            }
             .onFailure { message = it.message ?: "Gagal menyiarkan sinyal desa" }
+        busy = false
+    }
+
+    fun assignRescueTeam(incidentId: String, teamId: String) = viewModelScope.launch {
+        busy = true
+        runCatching { api.assignTeam(incidentId, teamId) }
+            .onSuccess {
+                selectedIncidentForDeployment = null
+                message = if (language == AppLanguage.ID) "Tim Rescue berhasil dikerahkan ke lokasi!" else "Rescue team deployed to location!"
+                refresh()
+            }
+            .onFailure {
+                message = it.message ?: "Gagal mengerahkan tim"
+            }
         busy = false
     }
 
@@ -202,9 +261,7 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
         val next = nextStatus(incident) ?: return@launch
         busy = true
         runCatching { api.updateIncident(incident.id, next) }
-            .onSuccess {
-                refresh()
-            }
+            .onSuccess { refresh() }
             .onFailure { message = it.message ?: "Gagal memperbarui insiden" }
         busy = false
     }
@@ -257,20 +314,26 @@ private fun LoginScreen(vm: JagaViewModel) {
                 modifier = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = vm::toggleLanguage) {
+                        Text(if (vm.language == AppLanguage.ID) "🇮🇩 ID (Ubah ke EN)" else "🇬🇧 EN (Switch to ID)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = JagaGreen)
+                    }
+                }
+
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     Box(modifier = Modifier.size(56.dp).background(JagaGreen, CircleShape), contentAlignment = Alignment.Center) {
                         Text("J", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
                     }
                     Spacer(Modifier.height(12.dp))
-                    Text("JAGA Mobile", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.headlineSmall, color = JagaGreen)
-                    Text("Peringatan & Respons Bencana Inklusif", color = TextMuted, fontSize = 13.sp)
+                    Text(Strings.title(vm.language), fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.headlineSmall, color = JagaGreen)
+                    Text(Strings.subtitle(vm.language), color = TextMuted, fontSize = 13.sp)
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     TextField(
                         value = email,
                         onValueChange = { email = it },
-                        placeholder = { Text("Email operasional") },
+                        placeholder = { Text(Strings.email(vm.language)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                         modifier = Modifier.fillMaxWidth(),
@@ -286,7 +349,7 @@ private fun LoginScreen(vm: JagaViewModel) {
                     TextField(
                         value = password,
                         onValueChange = { password = it },
-                        placeholder = { Text("Kata sandi") },
+                        placeholder = { Text(Strings.password(vm.language)) },
                         singleLine = true,
                         visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                         trailingIcon = {
@@ -312,11 +375,11 @@ private fun LoginScreen(vm: JagaViewModel) {
                     colors = ButtonDefaults.buttonColors(containerColor = JagaGreen),
                     shape = RoundedCornerShape(14.dp)
                 ) {
-                    Text(if (vm.busy) "Memverifikasi..." else "Masuk", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(if (vm.busy) Strings.loggingIn(vm.language) else Strings.login(vm.language), fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
 
                 if (vm.message.isNotBlank()) {
-                    Text(vm.message, color = if (vm.message.startsWith("Berhasil")) JagaAccent else Danger, fontSize = 12.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                    Text(vm.message, color = if (vm.message.startsWith("Berhasil") || vm.message.contains("success", true)) JagaAccent else Danger, fontSize = 12.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                 }
             }
         }
@@ -345,8 +408,11 @@ private fun HomeScreen(vm: JagaViewModel) {
                             Text(vm.session?.displayName ?: "Petugas", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Text(roleTitle, color = Color(0xFFD5F27C), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
+                        TextButton(onClick = vm::toggleLanguage) {
+                            Text(if (vm.language == AppLanguage.ID) "EN" else "ID", color = Color(0xFFD5F27C), fontWeight = FontWeight.ExtraBold)
+                        }
                         TextButton(onClick = vm::logout) {
-                            Text("Keluar", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text(Strings.logout(vm.language), color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -357,7 +423,7 @@ private fun HomeScreen(vm: JagaViewModel) {
                             FilterChip(
                                 selected = vm.currentTab == "UTAMA",
                                 onClick = { vm.currentTab = "UTAMA" },
-                                label = { Text("Operasi / Alarm") },
+                                label = { Text(Strings.tabAlarm(vm.language)) },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = Color(0xFFD5F27C),
                                     selectedLabelColor = Color(0xFF153D28)
@@ -366,7 +432,7 @@ private fun HomeScreen(vm: JagaViewModel) {
                             FilterChip(
                                 selected = vm.currentTab == "WARGA",
                                 onClick = { vm.currentTab = "WARGA" },
-                                label = { Text("Data Warga (${vm.residents.size})") },
+                                label = { Text(Strings.tabResidents(vm.language, vm.residents.size)) },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = Color(0xFFD5F27C),
                                     selectedLabelColor = Color(0xFF153D28)
@@ -376,7 +442,7 @@ private fun HomeScreen(vm: JagaViewModel) {
                                 FilterChip(
                                     selected = vm.currentTab == "KENDALA",
                                     onClick = { vm.currentTab = "KENDALA" },
-                                    label = { Text("Kendala (${vm.tickets.size})") },
+                                    label = { Text(Strings.tabTickets(vm.language, vm.tickets.size)) },
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = Color(0xFFD5F27C),
                                         selectedLabelColor = Color(0xFF153D28)
@@ -401,7 +467,45 @@ private fun HomeScreen(vm: JagaViewModel) {
                 ) {
                     Text(vm.message, color = TextMuted, fontSize = 13.sp, modifier = Modifier.weight(1f))
                     TextButton(onClick = vm::refresh) {
-                        Text("Perbarui", color = JagaAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text(Strings.refresh(vm.language), color = JagaAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+
+            // --- DIALOG PEMILIHAN TIM RESCUE OLEH JAGA DESA ---
+            vm.selectedIncidentForDeployment?.let { selectedIncident ->
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = SurfaceColor),
+                        shape = RoundedCornerShape(18.dp),
+                        border = androidx.compose.foundation.BorderStroke(2.dp, JagaAccent),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    ) {
+                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("${Strings.deployTeamTitle(vm.language)} ${selectedIncident.ownerName}", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = JagaGreen)
+                                TextButton(onClick = { vm.selectedIncidentForDeployment = null }) {
+                                    Text("Batal", color = Danger, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            if (vm.teams.isEmpty()) {
+                                Text("Tidak ada tim rescue terdaftar yang melayani wilayah ini.", color = TextMuted, fontSize = 12.sp)
+                            } else {
+                                vm.teams.forEach { team ->
+                                    Button(
+                                        onClick = { vm.assignRescueTeam(selectedIncident.id, team.id) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = JagaGreen),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("${team.name} (${team.callSign})", fontWeight = FontWeight.Bold)
+                                            Text(team.status, color = Color(0xFFD5F27C), fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -471,8 +575,8 @@ private fun HomeScreen(vm: JagaViewModel) {
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF3CBC7))
                         ) {
                             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("Kontrol Alarm & Peringatan Desa", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Danger)
-                                Text("Aktifkan sinyal darurat untuk memicu buzzer dan LED kalung seluruh warga di desa.", color = Color(0xFF912219), fontSize = 13.sp)
+                                Text(Strings.alarmHeader(vm.language), fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Danger)
+                                Text(Strings.alarmSub(vm.language), color = Color(0xFF912219), fontSize = 13.sp)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                                     Button(
                                         onClick = { vm.broadcastVillage("SIAGA") },
@@ -481,7 +585,7 @@ private fun HomeScreen(vm: JagaViewModel) {
                                         shape = RoundedCornerShape(10.dp),
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Text("Kirim SIAGA", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Text(Strings.sendSiaga(vm.language), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                     }
                                     Button(
                                         onClick = { vm.broadcastVillage("AWAS") },
@@ -490,7 +594,7 @@ private fun HomeScreen(vm: JagaViewModel) {
                                         shape = RoundedCornerShape(10.dp),
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Text("Kirim AWAS", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Text(Strings.sendAwas(vm.language), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -514,12 +618,12 @@ private fun HomeScreen(vm: JagaViewModel) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(modifier = Modifier.size(10.dp).background(statusColor, CircleShape))
                                 Spacer(Modifier.width(8.dp))
-                                Text("Status Kalung IoT (${iot?.deviceId ?: "JAGA-052"})", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = JagaGreen, modifier = Modifier.weight(1f))
+                                Text("Kalung IoT (${iot?.deviceId ?: "JAGA-052"})", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = JagaGreen, modifier = Modifier.weight(1f))
                                 Box(modifier = Modifier.background(statusColor.copy(alpha = 0.15f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
                                     Text(statusText, color = statusColor, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                                 }
                             }
-                            Text("Koordinat GPS: ${iot?.latitude ?: 5.54829}, ${iot?.longitude ?: 95.323753}", color = TextMuted, fontSize = 12.sp)
+                            Text("GPS: ${iot?.latitude ?: 5.54829}, ${iot?.longitude ?: 95.323753}", color = TextMuted, fontSize = 12.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                                 Button(
                                     onClick = { vm.triggerIotAlarm("DARURAT") },
@@ -528,7 +632,7 @@ private fun HomeScreen(vm: JagaViewModel) {
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Text("Test DARURAT", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text(Strings.testEmergency(vm.language), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                                 OutlinedButton(
                                     onClick = { vm.triggerIotAlarm("AMAN") },
@@ -536,7 +640,7 @@ private fun HomeScreen(vm: JagaViewModel) {
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Text("Reset AMAN", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = JagaGreen)
+                                    Text(Strings.resetSafe(vm.language), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = JagaGreen)
                                 }
                             }
                         }
@@ -545,7 +649,14 @@ private fun HomeScreen(vm: JagaViewModel) {
 
                 // Daftar Panggilan SOS / Prioritas Penyelamatan
                 items(vm.incidents, key = { it.id }) { incident ->
-                    IncidentCard(incident, vm.nextStatus(incident), vm.role, vm::advanceIncident)
+                    IncidentCard(
+                        incident = incident,
+                        next = vm.nextStatus(incident),
+                        role = vm.role,
+                        language = vm.language,
+                        onAdvance = vm::advanceIncident,
+                        onSelectDeploy = { vm.selectedIncidentForDeployment = incident }
+                    )
                 }
             }
         }
@@ -553,7 +664,14 @@ private fun HomeScreen(vm: JagaViewModel) {
 }
 
 @Composable
-private fun IncidentCard(incident: Incident, next: String?, role: String, onAdvance: (Incident) -> Unit) {
+private fun IncidentCard(
+    incident: Incident,
+    next: String?,
+    role: String,
+    language: AppLanguage,
+    onAdvance: (Incident) -> Unit,
+    onSelectDeploy: () -> Unit
+) {
     Card(
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = SurfaceColor),
@@ -570,7 +688,7 @@ private fun IncidentCard(incident: Incident, next: String?, role: String, onAdva
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(incident.ownerName, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = JagaGreen)
-                    Text("Kalung: ${incident.deviceId}", color = TextMuted, fontSize = 12.sp)
+                    Text("${Strings.deviceLabel(language)}: ${incident.deviceId}", color = TextMuted, fontSize = 12.sp)
                 }
                 Box(modifier = Modifier.background(Color(0xFFFDECEA), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
                     Text(incident.status.replace('_', ' '), color = Danger, fontWeight = FontWeight.Bold, fontSize = 11.sp)
@@ -579,18 +697,30 @@ private fun IncidentCard(incident: Incident, next: String?, role: String, onAdva
             HorizontalDivider(color = Color(0xFFE4E9E4))
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    Text("KOORDINAT TERAKHIR", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                    Text("KOORDINAT GPS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = TextMuted)
                     Text("${incident.latitude}, ${incident.longitude}", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 }
             }
-            if (next != null) {
+
+            // Tombol penugasan untuk Desa jika insiden belum selesai
+            if (role == "DESA" && incident.status != "SAFE" && incident.status != "CLOSED") {
                 Button(
-                    onClick = { onAdvance(incident) },
+                    onClick = onSelectDeploy,
                     colors = ButtonDefaults.buttonColors(containerColor = JagaAccent),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
                 ) {
-                    Text(if (role == "RESCUE") "Proses: ${next.replace('_', ' ')}" else "Tutup Kasus", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(Strings.deployTeamBtn(language), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+            }
+
+            if (next != null) {
+                OutlinedButton(
+                    onClick = { onAdvance(incident) },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                ) {
+                    Text(if (role == "RESCUE") "Proses: ${next.replace('_', ' ')}" else Strings.closeCase(language), fontWeight = FontWeight.Bold, fontSize = 13.sp, color = JagaGreen)
                 }
             }
         }

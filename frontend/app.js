@@ -591,6 +591,7 @@ function viewDesaAlarm() {
     <label class="field">Target<select data-bind="alarm.target"><option value="ALL" ${a.target === 'ALL' ? 'selected' : ''}>Seluruh kalung di desa</option><optgroup label="Kelompok">${[['DISABILITAS', 'Penyandang disabilitas'], ['LANSIA', 'Lansia'], ['IBU_HAMIL', 'Ibu hamil']].map(([code, label]) => `<option value="GROUP:${code}" ${a.target === `GROUP:${code}` ? 'selected' : ''}>${label}</option>`).join('')}</optgroup><optgroup label="Satu kalung">${devices.map(d => `<option value="${esc(d.id)}" ${a.target === d.id ? 'selected' : ''}>${esc(d.residentName || d.ownerName || d.id)} · ${esc(d.id)}</option>`).join('')}</optgroup></select></label>
     <div class="form-grid"><label class="field">Tinggi air terpantau (cm)<input type="number" min="0" max="2000" placeholder="mis. 100 untuk 1 meter" value="${esc(a.waterLevelCm)}" data-bind="alarm.waterLevelCm"><small>Masukkan berdasarkan pengamatan lapangan.</small></label>
       <label class="field">Catatan pengamatan<input type="text" maxlength="300" placeholder="mis. Sungai naik, titik rendah tergenang" value="${esc(a.note)}" data-bind="alarm.note"></label></div>
+    <label class="field">Tim Rescue yang Dikerahkan / Diberi Tahu<select data-bind="alarm.teamId"><option value="">Seluruh Tim Rescue Wilayah</option>${(D.teams || []).map(t => `<option value="${esc(t.id)}" ${a.teamId === t.id ? 'selected' : ''}>${esc(t.name)} · ${esc(t.callSign || '')} (${esc(TEAM_STATUS[t.status] || t.status)})</option>`).join('')}</select><small>Pilih tim khusus yang akan langsung diprioritaskan menerima alert ini.</small></label>
     <label class="field">Pesan instruksi untuk Tim Rescue<textarea placeholder="${esc(DEFAULT_MESSAGE[a.severity])}" data-bind="alarm.message">${esc(a.message)}</textarea><small>Tim Rescue akan membaca pesan ini saat memulai operasi. Kosongkan untuk memakai pesan standar.</small></label>
     ${opens ? callout({ tone: 'yellow', icon: 'signal', title: 'Alarm ini membuka operasi Rescue', text: 'JAGA Rescue akan melihat warga berkalung di desa selama operasi berjalan.' }) : ''}
     <button type="submit" class="btn primary block">${icon('bell')} Tinjau & aktifkan alarm</button></form>`;
@@ -1042,6 +1043,7 @@ function alarmConfirmModal(payload) {
   const groupLabel = { DISABILITAS: 'penyandang disabilitas', LANSIA: 'lansia', IBU_HAMIL: 'ibu hamil' };
   const target = payload.target === 'ALL' ? 'seluruh kalung di desa' : payload.target.startsWith('GROUP:') ? `kalung kelompok ${groupLabel[payload.target.slice(6)] || payload.target.slice(6)}` : `kalung ${payload.target}`;
   const body = `<p>Peringatan <b>${esc((SEVERITY[payload.severity] || [payload.severity])[0])}</b> akan dikirim ke <b>${esc(target)}</b>.</p>
+    ${payload.teamId ? `<p style="margin-top:6px;color:var(--green-800)"><b>Tim Rescue Penerima:</b> ${esc(D.teams.find(t => t.id === payload.teamId)?.name || 'Tim Khusus')}</p>` : ''}
     <div class="callout"><span class="callout-icon">${icon('info')}</span><div><b>Pesan</b><p>${esc(payload.message)}</p></div></div>
     ${opens ? callout({ tone: 'yellow', icon: 'signal', title: 'JAGA Rescue akan diberi akses otomatis', text: 'Rescue melihat warga berkalung di area ini sampai Anda menutup operasi.' }) : ''}
     <label class="check"><input type="checkbox" id="confirmCheck"><span>Saya telah memverifikasi kondisi dengan tim lapangan.</span></label>`;
@@ -1584,7 +1586,7 @@ const FORMS = {
     if (!villageId) return toast('Desa tujuan belum ditentukan', true);
     const water = a.waterLevelCm === '' ? undefined : Number(a.waterLevelCm);
     if (water !== undefined && (!Number.isFinite(water) || water < 0 || water > 2000)) return toast('Tinggi air harus 0 sampai 2000 cm', true);
-    openModal({ type: 'alarm-confirm', payload: { villageId, severity: a.severity, target: a.target, message: a.message.trim() || DEFAULT_MESSAGE[a.severity], waterLevelCm: water, note: a.note.trim() || undefined } });
+    openModal({ type: 'alarm-confirm', payload: { villageId, severity: a.severity, target: a.target, message: a.message.trim() || DEFAULT_MESSAGE[a.severity], waterLevelCm: water, note: a.note.trim() || undefined, teamId: a.teamId || undefined } });
   },
   resident(form) {
     const data = new FormData(form);
@@ -1862,7 +1864,7 @@ async function loadData(silent = false) {
       D.teams = await safe(JagaApi.teams(), []);
       D.residents = []; D.devices = [];
     } else {
-      [D.residents, D.devices, D.shelters] = await Promise.all([safe(JagaApi.residents(), []), safe(JagaApi.devices(), []), safe(JagaApi.shelters(), [])]);
+      [D.residents, D.devices, D.shelters, D.teams] = await Promise.all([safe(JagaApi.residents(), []), safe(JagaApi.devices(), []), safe(JagaApi.shelters(), []), safe(JagaApi.teams(), [])]);
     }
     if (role === 'pusat') {
       const [accounts, ruleSets, audit, opsAll] = await Promise.all([safe(JagaApi.accounts(), []), safe(JagaApi.ruleSets(), []), safe(JagaApi.audit(), []), safe(JagaApi.operations('ALL'), [])]);

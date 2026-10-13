@@ -151,11 +151,26 @@ export async function createAlert(ctx: Ctx) {
     });
   }
 
+  // Jika Jaga Desa secara spesifik memilih tim khusus (misal Tim SAR), tandai tim tersebut sebagai pengerahan utama
+  const chosenTeamId = clean(body.teamId);
+  if (chosenTeamId) {
+    const targetTeam = await ctx.store.one("rescue_teams", { eq: { id: chosenTeamId } });
+    if (targetTeam) {
+      if (String(targetTeam.status) === "AVAILABLE" || String(targetTeam.status) === "OFF_DUTY") {
+        await ctx.store.update("rescue_teams", String(targetTeam.id), { status: "ASSIGNED", updated_at: nowIso() });
+      }
+      notifications.push(await notify(ctx.store, {
+        session: ctx.session, channel: "IN_APP", destination: chosenTeamId,
+        templateCode: `ALERT_TEAM_DISPATCH`, body: `Desa mengerahkan tim ${targetTeam.name}: ${severity} - ${message}`, villageId
+      }));
+    }
+  }
+
   await record(ctx.store, {
     actorId: ctx.session.profileId, action: "ALERT_SEND", entityType: "alert_commands",
-    entityId: String(command.id), summary: `Peringatan ${severity} untuk ${targetType} ${target}`, after: command
+    entityId: String(command.id), summary: `Peringatan ${severity} untuk ${targetType} ${target}${chosenTeamId ? ` (Dikerahkan ke Tim: ${chosenTeamId})` : ""}`, after: command
   });
-  publish("alert.created", { id: command.id, severity, message, targetType, target }, villageId);
+  publish("alert.created", { id: command.id, severity, message, targetType, target, teamId: chosenTeamId || null }, villageId);
 
   // Teruskan ke kalung fisik (ESP32) yang terdaftar di transport Firebase RTDB; hanya perangkat sasaran alarm.
   void pushAlarmToKnown(devices.map(device => String(device.id)), severity === "AWAS" ? "DARURAT" : "SIAGA");

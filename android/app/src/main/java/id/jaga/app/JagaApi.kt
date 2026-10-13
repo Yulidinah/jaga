@@ -37,6 +37,14 @@ data class TechnicalTicket(
     val createdAt: String
 )
 
+data class RescueTeam(
+    val id: String,
+    val name: String,
+    val callSign: String,
+    val status: String,
+    val vehicleInfo: String?
+)
+
 data class IotDeviceStatus(
     val deviceId: String,
     val statusAlarm: String,
@@ -81,6 +89,31 @@ class JagaApi(var baseUrl: String = BuildConfig.API_BASE) {
         val data = JSONObject(read(connection)).get("data")
         val payload: JSONArray = if (data is JSONArray) data else (data as JSONObject).getJSONArray("data")
         (0 until payload.length()).map { payload.getJSONObject(it).toIncident() }
+    }
+
+    suspend fun teams(): List<RescueTeam> = withContext(Dispatchers.IO) {
+        val connection = open("/teams", "GET")
+        val data = JSONObject(read(connection)).get("data")
+        val payload: JSONArray = if (data is JSONArray) data else (data as JSONObject).getJSONArray("data")
+        (0 until payload.length()).map {
+            val obj = payload.getJSONObject(it)
+            RescueTeam(
+                id = obj.getString("id"),
+                name = obj.getString("name"),
+                callSign = obj.optString("callSign", "-"),
+                status = obj.optString("status", "AVAILABLE"),
+                vehicleInfo = obj.optString("vehicleInfo", null)
+            )
+        }
+    }
+
+    suspend fun assignTeam(incidentId: String, teamId: String): Unit = withContext(Dispatchers.IO) {
+        val connection = open("/incidents/$incidentId/assignments", "POST")
+        connection.outputStream.bufferedWriter().use {
+            it.write(JSONObject().put("teamId", teamId).put("force", true).toString())
+        }
+        read(connection)
+        Unit
     }
 
     suspend fun residents(): List<Resident> = withContext(Dispatchers.IO) {
