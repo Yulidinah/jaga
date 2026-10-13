@@ -14,7 +14,7 @@ import * as alerts from "./alerts-api.js";
 import * as rulesets from "./rulesets-api.js";
 import * as dashboard from "./dashboard-api.js";
 import * as operations from "./operations-api.js";
-import { DEMO_ACCOUNTS } from "../seed.js";
+import { DEMO_ACCOUNTS, demoPasswordOverride } from "../seed.js";
 
 const CENTRAL = ["PUSAT"] as const;
 
@@ -34,7 +34,7 @@ export function buildRouter(): Router {
     inariskWmsLayers: config.inariskWmsLayers || null,
     demoData: ctx.store.kind === "memory" || process.env.JAGA_DATA_IS_DUMMY === "true",
     // Akun contoh hanya ditawarkan pada mode memori non-produksi (data dummy publik).
-    demoAccounts: ctx.store.kind === "memory" && config.env !== "production"
+    demoAccounts: ctx.store.kind === "memory" && config.env !== "production" && !demoPasswordOverride
       ? DEMO_ACCOUNTS.map(a => ({ label: ({ PUSAT: "JAGA Pusat", DESA: "JAGA Desa", RESCUE: "JAGA Rescue" } as Record<string, string>)[a.role] + (a.role === "RESCUE" ? ` (${a.email.includes("damkar") ? "Damkar" : "BPBD"})` : ""), email: a.email, password: a.password }))
       : [],
     devRoleHeaderEnabled: config.devRoleHeader,

@@ -14,6 +14,12 @@ import type { Row } from "./types.js";
 /** UUID deterministik supaya data demo sama antara mode memori dan seed Supabase. */
 const id = (group: string, n: number) => `${group}-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
+/**
+ * Bila JAGA_DEMO_PASSWORD diisi, semua akun demo memakai kata sandi itu (bukan yang tertulis di source)
+ * dan daftar akun tidak lagi ditawarkan di /api/config. Wajib diisi bila demo dipasang di internet.
+ */
+export const demoPasswordOverride = process.env.JAGA_DEMO_PASSWORD ?? "";
+
 export const DEMO_ACCOUNTS = [
   {
     email: "pusat@jaga.id",
@@ -950,7 +956,7 @@ export function buildDemoData(): DemoData {
     email: account.email.toLowerCase(),
     display_name: account.displayName,
     title: account.title,
-    password_hash: hashPassword(account.password),
+    password_hash: hashPassword(demoPasswordOverride || account.password),
     role: account.role,
     organization_id: id("40000000", account.org),
     profile_id: id("50000000", index + 1),

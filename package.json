@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.6"
+  },
   "description": "Platform peringatan dan respons inklusif JAGA",
   "scripts": {
     "build": "tsc -p backend/tsconfig.json",
