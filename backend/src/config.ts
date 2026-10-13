@@ -29,6 +29,19 @@ export const config = {
   mqttUsername: process.env.MQTT_USERNAME ?? "",
   mqttPassword: process.env.MQTT_PASSWORD ?? "",
 
+  /** Transport kalung via Firebase RTDB. Kosongkan FIREBASE_RTDB_URL untuk mematikan. */
+  firebaseRtdbUrl: process.env.FIREBASE_RTDB_URL ?? "https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app",
+  /** Database secret / token RTDB (opsional). Bila diisi, ikut di setiap permintaan backend. */
+  firebaseRtdbSecret: process.env.FIREBASE_RTDB_SECRET ?? "",
+  /** Lokasi cadangan kalung bila GPS mati (lokasi lomba: TDMRC USK, Banda Aceh). Dipakai bila kalung tidak mengirim koordinat valid. */
+  iotFallbackLat: num(process.env.JAGA_IOT_FALLBACK_LAT, 5.54829),
+  iotFallbackLng: num(process.env.JAGA_IOT_FALLBACK_LNG, 95.323753),
+  iotSync: process.env.JAGA_IOT_SYNC !== "false",
+  /** Kirim SMS/WhatsApp ke kontak darurat warga saat SOS kalung. */
+  notifyContactsOnSos: process.env.JAGA_NOTIFY_CONTACTS_ON_SOS !== "false",
+  twilioWhatsappFrom: process.env.TWILIO_WHATSAPP_FROM ?? "",
+  publicBaseUrl: process.env.PUBLIC_BASE_URL?.replace(/\/$/, "") ?? "",
+
   fcmServerKey: process.env.FCM_SERVER_KEY ?? "",
   twilioAccountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
   twilioAuthToken: process.env.TWILIO_AUTH_TOKEN ?? "",

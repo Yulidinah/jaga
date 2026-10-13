@@ -1,4 +1,5 @@
-import { actorOf, notify, record } from "../audit.js";
+import { actorOf, mapsLink, notify, notifyResidentContacts, record } from "../audit.js";
+import { config } from "../config.js";
 import { assertVillageAccess, newDeviceKey, newGatewayKey, requireRole } from "../auth.js";
 import { isOnline, badRequest, clean, conflict, indexBy, notFound, nowIso, oneOf, optionalText, randomToken, requireUuid, sha256Hex, text } from "../lib.js";
 import { publish } from "../realtime.js";
@@ -533,6 +534,14 @@ export async function deviceSos(ctx: Ctx) {
     templateCode: "SOS", villageId: device.village_id ? String(device.village_id) : null,
     body: `Kalung ${device.id} meminta bantuan${village ? ` di ${village.name}` : ""}${latitude !== null && longitude !== null ? ` · ${gps.fix ? "GPS" : "lokasi terakhir"} ${latitude.toFixed(5)}, ${longitude.toFixed(5)}` : ""}`
   });
+  if (config.notifyContactsOnSos && residentId) {
+    const resident = await ctx.store.one("residents", { eq: { id: residentId } });
+    await notifyResidentContacts(ctx.store, {
+      residentId, villageId: device.village_id ? String(device.village_id) : null, incidentId: String((incident as Row).id),
+      templateCode: "SOS_KONTAK",
+      body: `JAGA: ${resident?.full_name ?? "Warga"} menekan tombol SOS${village ? ` di ${village.name}` : ""}. Tim desa dan rescue sudah diberi tahu.${mapsLink(latitude, longitude)}`
+    }).catch(error => console.warn("[sos] notifikasi kontak gagal:", (error as Error).message));
+  }
   await markAssistance();
   return {
     accepted: true, duplicate: false, incidentId: (incident as Row).id, status: (incident as Row).status, ack: "SOS_DITERIMA",

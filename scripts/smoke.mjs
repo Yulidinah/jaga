@@ -8,7 +8,7 @@ const base = process.env.BASE ?? `http://localhost:${port}`;
 let server = null;
 if (!process.env.BASE) {
   server = spawn(process.execPath, ["backend/dist/server.js"], {
-    env: { ...process.env, PORT: String(port), JAGA_FORCE_MEMORY: "true", JAGA_TEST_FIXTURES: "true", SUPABASE_URL: "", SUPABASE_SECRET_KEY: "" },
+    env: { ...process.env, PORT: String(port), JAGA_FORCE_MEMORY: "true", JAGA_TEST_FIXTURES: "true", SUPABASE_URL: "", SUPABASE_SECRET_KEY: "", FIREBASE_RTDB_URL: "" },
     stdio: "ignore"
   });
 }
@@ -473,6 +473,16 @@ try {
   const dispatch = await call("POST", `/api/incidents/${sosForDispatch.data?.id}/assignments`, { cookie: D, body: { teamId: damkar?.id, note: "Rumah paling ujung, jalan tergenang" } });
   check("Desa mengerahkan tim Rescue langsung dari dasbor (FR-2.7)", dispatch.status === 201, `${dispatch.status} ${dispatch.error ?? ""}`);
   check("Desa lain tidak dapat mengerahkan tim ke insiden desa ini", (await call("POST", `/api/incidents/${sosForDispatch.data?.id}/assignments`, { cookie: S2, body: { teamId: damkar?.id } })).status === 403);
+
+  // --- Transport kalung (IoT) dan reset: wajib login, sesuai peran
+  check("IoT status tanpa login ditolak", (await call("GET", "/api/iot/status")).status === 401);
+  check("IoT alarm tanpa login ditolak", (await call("POST", "/api/iot/alarm", { body: { status: "DARURAT" } })).status === 401);
+  check("reset-data lewat GET tidak lagi ada", [401, 404, 405].includes((await call("GET", "/api/reset-data")).status));
+  check("reset-data tanpa login ditolak", (await call("POST", "/api/reset-data")).status === 401);
+  check("Desa tidak dapat mereset data", (await call("POST", "/api/reset-data", { cookie: D })).status === 403);
+  check("Rescue tidak dapat mengirim alarm IoT", (await call("POST", "/api/iot/alarm", { cookie: R, body: { status: "DARURAT" } })).status === 403);
+  check("alarm IoT ke kalung tak terdaftar ditolak", (await call("POST", "/api/iot/alarm", { cookie: P, body: { status: "AMAN", deviceId: "TIDAK-ADA" } })).status === 404);
+  check("transport Firebase mati dilaporkan jelas (502)", (await call("POST", "/api/iot/alarm", { cookie: P, body: { status: "AMAN" } })).status === 502);
 
   // --- Sesi
   const token = desa.data?.token;

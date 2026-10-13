@@ -114,7 +114,14 @@ export async function notify(store: Store, input: NotifyInput): Promise<NotifyRe
 
   try {
     const auth = Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString("base64");
-    const form = new URLSearchParams({ To: input.destination, From: process.env.TWILIO_FROM_NUMBER ?? "", Body: input.body });
+    const wa = input.channel === "WHATSAPP";
+    const from = wa ? config.twilioWhatsappFrom : (process.env.TWILIO_FROM_NUMBER ?? "");
+    if (!from) throw new Error(wa ? "TWILIO_WHATSAPP_FROM belum diisi" : "TWILIO_FROM_NUMBER belum diisi");
+    const form = new URLSearchParams({
+      To: wa ? `whatsapp:${input.destination}` : input.destination,
+      From: wa && !from.startsWith("whatsapp:") ? `whatsapp:${from}` : from,
+      Body: input.body
+    });
     const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.twilioAccountSid}/Messages.json`, {
       method: "POST",
       headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
@@ -128,3 +135,51 @@ export async function notify(store: Store, input: NotifyInput): Promise<NotifyRe
     return { queued: false, provider, detail: `Pengiriman gagal: ${(error as Error).message}`, notificationId };
   }
 }
+
+/* ------------------------------------------------- Notifikasi kontak warga */
+
+/** Nomor internasional: buang spasi/tanda, 08xx menjadi +628xx. Mengembalikan "" bila tidak valid. */
+export const normalizePhone = (value: unknown): string => {
+  const raw = String(value ?? "").replace(/[^\d+]/g, "");
+  const digits = raw.startsWith("+") ? raw.slice(1) : raw;
+  const intl = digits.startsWith("0") ? `62${digits.slice(1)}` : digits;
+  return /^\d{9,15}$/.test(intl) ? `+${intl}` : "";
+};
+
+export interface ContactAlertInput {
+  residentId: string;
+  villageId?: string | null;
+  incidentId?: string | null;
+  templateCode: string;
+  body: string;
+}
+
+/**
+ * Kirim pesan ke kontak darurat warga (keluarga/pendamping) lewat SMS, dan WhatsApp bila diaktifkan.
+ * Kontak utama didahulukan, nomor ganda digabung. Kegagalan satu nomor tidak menghentikan yang lain.
+ */
+export async function notifyResidentContacts(store: Store, input: ContactAlertInput): Promise<{ attempted: number; sent: number }> {
+  const contacts = await store.list("resident_contacts", { eq: { resident_id: input.residentId } });
+  contacts.sort((a, b) => Number(Boolean(b.is_primary)) - Number(Boolean(a.is_primary)));
+  const seen = new Set<string>();
+  const channels: Array<"SMS" | "WHATSAPP"> = config.twilioWhatsappFrom ? ["SMS", "WHATSAPP"] : ["SMS"];
+  let attempted = 0;
+  let sent = 0;
+  for (const contact of contacts) {
+    const phone = normalizePhone(contact.phone);
+    if (!phone || seen.has(phone)) continue;
+    seen.add(phone);
+    for (const channel of channels) {
+      attempted += 1;
+      const result = await notify(store, {
+        session: null, residentId: input.residentId, incidentId: input.incidentId ?? null, channel,
+        destination: phone, templateCode: input.templateCode, body: input.body, villageId: input.villageId ?? null
+      });
+      if (result.queued && result.detail.startsWith("Terkirim")) sent += 1;
+    }
+  }
+  return { attempted, sent };
+}
+
+export const mapsLink = (lat: number | null, lng: number | null): string =>
+  lat !== null && lng !== null ? ` Lokasi: https://maps.google.com/?q=${lat.toFixed(5)},${lng.toFixed(5)}` : "";

@@ -229,14 +229,13 @@
 
     if (status === 'DARURAT') {
       playSiren();
-      reportSosToJagaBackend(currentData.lat, currentData.lng);
     } else {
       stopSiren();
     }
 
     let sent = false;
 
-    // Kanal 1: Backend Server Proxy Endpoint (Paling aman, bebas CSP/CORS)
+    // Alarm dikirim lewat backend (terautentikasi); browser tidak menulis langsung ke Firebase.
     try {
       const res = await fetch('/api/iot/alarm', {
         method: 'POST',
@@ -248,26 +247,6 @@
       }
     } catch (e) {
       console.warn('[Bridge Backend Alarm]', e);
-    }
-
-    // Kanal 2: Direct REST Call ke Firebase RTDB
-    try {
-      const res2 = await fetch(FIREBASE_REST_URL, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (res2.ok) {
-        sent = true;
-      }
-    } catch (e) {
-      console.warn('[Bridge REST Alarm]', e);
-    }
-
-    // Kanal 3: Firebase SDK (jika terhubung)
-    if (kalungRef) {
-      kalungRef.update(payload).catch(e => console.warn('[Bridge SDK]', e));
-      sent = true;
     }
 
     if (targetBtn) {
@@ -517,8 +496,7 @@
 
         if (currentData.sos || currentData.status_alarm === 'DARURAT') {
           playSiren();
-          reportSosToJagaBackend(currentData.lat, currentData.lng);
-        } else {
+            } else {
           stopSiren();
         }
 
@@ -560,8 +538,7 @@
 
         if (currentData.sos || currentData.status_alarm === 'DARURAT') {
           playSiren();
-          reportSosToJagaBackend(currentData.lat, currentData.lng);
-        } else {
+            } else {
           stopSiren();
         }
 
@@ -575,28 +552,6 @@
     }
   }
 
-  // 9. Pelaporan SOS ke Backend JAGA (SAR / Rescue)
-  let lastSosReported = 0;
-  function reportSosToJagaBackend(lat, lng) {
-    if (Date.now() - lastSosReported < 30000) return;
-    lastSosReported = Date.now();
-    fetch('/api/device/sos', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-JAGA-Device-Id': DEVICE_ID,
-        'X-JAGA-Device-Key': 'jrk_bedb28ecaceb0da6d01a01da9d367065'
-      },
-      body: JSON.stringify({
-        latitude: lat || 5.54829,
-        longitude: lng || 95.323753,
-        gpsFix: true,
-        description: 'Tombol SOS ditekan di kalung fisik JAGA-052'
-      })
-    }).then(() => {
-      if (typeof window.loadData === 'function') window.loadData(true);
-    }).catch(() => {});
-  }
 
   // 10. Interceptor form alarm dari Desa/Rescue
   window.addEventListener('submit', (e) => {

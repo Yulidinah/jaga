@@ -3,7 +3,8 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { buildRouter } from "./api/index.js";
 import { applyPlatformSettings } from "./api/platform-api.js";
-import { clearAuditRing, notify } from "./audit.js";
+import { clearAuditRing, mapsLink, notify, notifyResidentContacts } from "./audit.js";
+import { clearBackendEcho, deviceNode, firebaseEnabled, isBackendEcho, listRtdbDevices, pushAlarm, rtdbGet, stateOf, type AlarmState } from "./iot-firebase.js";
 import { authenticateDevice, authenticateGateway, resolveSession, usingEphemeralSessionSecret } from "./auth.js";
 import { config, projectRoot } from "./config.js";
 import { HttpError, json, nowIso, readBody } from "./lib.js";
@@ -198,75 +199,8 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    if (url.pathname === "/api/iot/test" && method === "GET") {
-      const start = Date.now();
-      try {
-        const resp = await fetch("https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app/kalung/JAGA-052.json");
-        const data = await resp.json();
-        const latencyMs = Date.now() - start;
-        json(res, 200, { success: true, latencyMs, status: "CONNECTED", deviceId: "JAGA-052", data });
-      } catch (err: any) {
-        json(res, 502, { success: false, status: "DISCONNECTED", error: err?.message || "Gagal menghubungi Firebase RTDB" });
-      }
-      return;
-    }
-
-    if (url.pathname === "/api/iot/status" && method === "GET") {
-      try {
-        const resp = await fetch("https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app/kalung/JAGA-052.json");
-        const data = await resp.json();
-        json(res, 200, { success: true, deviceId: "JAGA-052", data, timestamp: Date.now() });
-      } catch (err: any) {
-        json(res, 502, { success: false, error: err?.message || "Gagal menghubungi Firebase RTDB" });
-      }
-      return;
-    }
-
-    if (url.pathname === "/api/iot/alarm" && method === "POST") {
-      try {
-        const body = (await readBody(req, 16 * 1024)) as { status?: string };
-        const status = body.status === "DARURAT" ? "DARURAT" : (body.status === "SIAGA" ? "SIAGA" : "AMAN");
-        const payload = status === "DARURAT"
-          ? { status_alarm: "DARURAT", sos: true, siaga: false, aman: false, last_active: Date.now() }
-          : status === "SIAGA"
-            ? { status_alarm: "SIAGA", sos: false, siaga: true, aman: false, last_active: Date.now() }
-            : { status_alarm: "AMAN", sos: false, siaga: false, aman: true, last_active: Date.now() };
-
-        const resp = await fetch("https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app/kalung/JAGA-052.json", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        const data = await resp.json();
-        publish("device.updated", { deviceId: "JAGA-052", status, data });
-        json(res, 200, { success: true, deviceId: "JAGA-052", status, updated: data });
-      } catch (err: any) {
-        json(res, 500, { success: false, error: err?.message || "Gagal mengirim status ke Firebase" });
-      }
-      return;
-    }
-
-    if (url.pathname === "/api/reset-data" && (method === "POST" || method === "GET")) {
-      try {
-        await resetStore(store);
-        clearAuditRing();
-        // Pastikan kalung JAGA-052 di Firebase RTDB direset ke AMAN
-        await fetch("https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app/kalung/JAGA-052.json", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            status_alarm: "AMAN",
-            sos: false,
-            siaga: false,
-            aman: true,
-            last_active: Date.now()
-          })
-        }).catch(() => undefined);
-        publish("device.updated", { deviceId: "JAGA-052", status: "AMAN", state: "AMAN", online: true });
-        json(res, 200, { success: true, message: "Seluruh data riwayat pengujian berhasil direset ke kondisi awal bersih." });
-      } catch (err: any) {
-        json(res, 500, { success: false, error: err?.message || "Gagal mereset data" });
-      }
+    if (url.pathname.startsWith("/api/iot/") || url.pathname === "/api/reset-data") {
+      await handleIotRequest(req, res, url, method);
       return;
     }
 
@@ -286,6 +220,64 @@ const server = createServer(async (req, res) => {
 });
 
 /** Perangkat tidak punya sesi, tetapi tetap mendapat sesi terbatas agar kontrak Ctx terpenuhi. */
+async function handleIotRequest(req: IncomingMessage, res: ServerResponse, url: URL, method: string): Promise<void> {
+  try {
+    const session = await resolveSession(store, req);
+    if (!session) throw new HttpError(401, "Sesi tidak valid atau sudah berakhir");
+
+    if ((url.pathname === "/api/iot/test" || url.pathname === "/api/iot/status") && method === "GET") {
+      const deviceId = url.searchParams.get("deviceId") || "JAGA-052";
+      await assertIotDeviceAccess(session, deviceId);
+      const start = Date.now();
+      try {
+        const data = await rtdbGet(deviceNode(deviceId));
+        json(res, 200, { success: true, latencyMs: Date.now() - start, status: "CONNECTED", deviceId, data, timestamp: Date.now() });
+      } catch (err) {
+        json(res, 502, { success: false, status: "DISCONNECTED", error: (err as Error).message || "Gagal menghubungi Firebase RTDB" });
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/iot/alarm" && method === "POST") {
+      if (session.role !== "PUSAT" && session.role !== "DESA") throw new HttpError(403, "Hanya JAGA Pusat dan JAGA Desa yang dapat mengirim alarm ke kalung");
+      const body = (await readBody(req, 16 * 1024)) as { status?: string; deviceId?: string };
+      const deviceId = String(body.deviceId || "JAGA-052");
+      await assertIotDeviceAccess(session, deviceId);
+      const state: AlarmState = body.status === "DARURAT" ? "DARURAT" : body.status === "SIAGA" ? "SIAGA" : "AMAN";
+      const ok = await pushAlarm(deviceId, state);
+      if (!ok) throw new HttpError(502, "Transport Firebase tidak dapat dijangkau atau dimatikan");
+      publish("device.updated", { deviceId, status: state }, undefined);
+      json(res, 200, { success: true, deviceId, status: state });
+      return;
+    }
+
+    if (url.pathname === "/api/reset-data" && method === "POST") {
+      if (session.role !== "PUSAT") throw new HttpError(403, "Hanya JAGA Pusat yang dapat mereset data");
+      if (config.env === "production" && process.env.JAGA_ALLOW_RESET !== "true") throw new HttpError(403, "Reset data dinonaktifkan di produksi");
+      await resetStore(store);
+      clearAuditRing();
+      try {
+        for (const id of Object.keys(await listRtdbDevices())) await pushAlarm(id, "AMAN");
+      } catch { /* RTDB tidak terjangkau: data lokal tetap direset */ }
+      publish("device.updated", { deviceId: "JAGA-052", status: "AMAN", state: "AMAN", online: true });
+      json(res, 200, { success: true, message: "Seluruh data riwayat pengujian berhasil direset ke kondisi awal bersih." });
+      return;
+    }
+
+    throw new HttpError(404, "Endpoint tidak ditemukan");
+  } catch (error) {
+    if (error instanceof HttpError) json(res, error.status, { error: error.message });
+    else json(res, 500, { error: (error as Error).message || "Kesalahan server" });
+  }
+}
+
+/** DESA hanya boleh menyentuh kalung di desanya; kalung harus ada di basis data (bukan sembarang ID). */
+async function assertIotDeviceAccess(session: Session, deviceId: string): Promise<void> {
+  const device = await store.one("devices", { eq: { id: deviceId } });
+  if (!device) throw new HttpError(404, "Kalung tidak terdaftar");
+  if (session.villageIds && !session.villageIds.includes(String(device.village_id))) throw new HttpError(403, "Kalung ini bukan di wilayah Anda");
+}
+
 const deviceSession = (device: Row): Session => ({
   userId: `device:${device.id}`,
   profileId: `device:${device.id}`,
@@ -327,102 +319,100 @@ server.listen(config.port, () => {
     heartbeat.unref();
   }
 
-  // Sinkronisasi dua arah real-time dengan Kalung Fisik ESP32 via Firebase RTDB
-  const FIREBASE_IOT_URL = "https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app/kalung/JAGA-052.json";
-  let lastKnownEspStatus = "AMAN";
+  // Sinkronisasi dua arah dengan kalung fisik (ESP32) lewat Firebase RTDB: semua kalung di /kalung yang terdaftar di basis data.
+  if (firebaseEnabled()) {
+    const lastState = new Map<string, AlarmState>();
+    const warned = new Set<string>();
+    let syncing = false;
 
-  const syncEsp32Hardware = async () => {
-    try {
-      const resp = await fetch(FIREBASE_IOT_URL, { signal: AbortSignal.timeout(4000) });
-      if (!resp.ok) return;
-      const data = (await resp.json()) as any;
-      if (!data) return;
+    const syncDevice = async (deviceId: string, data: Record<string, unknown>) => {
+      const dev = await store.one("devices", { eq: { id: deviceId } });
+      if (!dev) {
+        if (!warned.has(deviceId)) { warned.add(deviceId); console.warn(`[iot] kalung ${deviceId} ada di Firebase tetapi belum terdaftar di JAGA, diabaikan`); }
+        return;
+      }
+      const state = stateOf(data);
+      const previous = lastState.get(deviceId) ?? "AMAN";
+      lastState.set(deviceId, state);
+      const resId = dev.resident_id ? String(dev.resident_id) : null;
+      const assignment = resId ? null : await store.one("device_assignments", { eq: { device_id: deviceId }, isNull: { unassigned_at: true } });
+      const residentId = resId ?? (assignment?.resident_id ? String(assignment.resident_id) : null);
+      const resident = residentId ? await store.one("residents", { eq: { id: residentId } }) : null;
+      const villageId = dev.village_id ? String(dev.village_id) : resident?.village_id ? String(resident.village_id) : null;
+      const openIncidents = () => store.list("incidents", {
+        eq: { device_id: deviceId },
+        pred: row => !["SAFE", "CANCELLED", "CLOSED"].includes(String(row.status))
+      });
 
-      const rawStatus = String(data.status_alarm || (data.sos ? "DARURAT" : (data.siaga ? "SIAGA" : "AMAN"))).toUpperCase();
-      const isSos = data.sos === true || rawStatus === "DARURAT";
-      const isAman = (data.aman === true || rawStatus === "AMAN") && !isSos;
+      // Alarm yang baru dikirim operator lewat backend: kalung hanya mengulang status itu, bukan SOS dari warga.
+      if (state === "DARURAT" && previous !== "DARURAT" && isBackendEcho(deviceId, "DARURAT")) {
+        publish("device.updated", { deviceId, status: "DARURAT", state: "ALARM", online: true }, villageId ?? undefined);
+        return;
+      }
+      if (state === "AMAN") clearBackendEcho(deviceId);
 
-      // 1. Kalung ESP32 Ditekan Teman / SOS Aktif
-      if (isSos && lastKnownEspStatus !== "DARURAT") {
-        lastKnownEspStatus = "DARURAT";
-        const dev = await store.one("devices", { eq: { id: "JAGA-052" } });
-        const resId = dev?.resident_id;
-        const resident = resId ? await store.one("residents", { eq: { id: String(resId) } }) : null;
-        const vId = dev?.village_id || resident?.village_id;
-
-        const openIncident = await store.one("incidents", {
-          eq: { device_id: "JAGA-052" },
-          pred: row => !["SAFE", "CANCELLED", "CLOSED"].includes(String(row.status))
-        });
-
-        const lat = Number(data.lat ?? dev?.latitude ?? 5.54829);
-        const lng = Number(data.lng ?? dev?.longitude ?? 95.323753);
+      if (state === "DARURAT" && previous !== "DARURAT") {
+        const valid = (value: unknown) => { const n = Number(value); return value !== null && value !== undefined && Number.isFinite(n) && n !== 0 ? n : null; };
+        const lat = valid(data.lat) ?? config.iotFallbackLat;
+        const lng = valid(data.lng) ?? config.iotFallbackLng;
+        const hasFix = true;
         const now = nowIso();
+        const owner = String(resident?.full_name ?? dev.owner_name ?? deviceId);
 
-        if (!openIncident) {
-          const newInc = await store.insert("incidents", {
-            resident_id: resident?.id ?? null,
-            village_id: vId ?? null,
-            device_id: "JAGA-052",
-            owner_name: resident?.full_name ?? "Hj. Siti Aminah",
-            status: "NEW",
-            severity: "AWAS",
-            disaster_type: "SOS Kalung Fisik ESP32",
-            description: "Tombol SOS ditekan pada kalung fisik JAGA-052",
-            latitude: lat,
-            longitude: lng,
-            created_at: now
+        if (!(await openIncidents()).length) {
+          const incident = await store.insert("incidents", {
+            resident_id: residentId, village_id: villageId, device_id: deviceId, owner_name: owner,
+            status: "NEW", severity: "AWAS", disaster_type: "SOS Kalung",
+            description: `Tombol SOS ditekan pada kalung ${deviceId}`,
+            latitude: hasFix ? lat : null, longitude: hasFix ? lng : null, created_at: now
           });
-
           await notify(store, {
-            session: null,
-            incidentId: String(newInc.id),
-            channel: "IN_APP",
-            destination: String(vId ?? ""),
-            templateCode: "SOS",
-            villageId: vId ? String(vId) : null,
-            body: `🚨 SOS dari Kalung Fisik JAGA-052 (${resident?.full_name ?? "Hj. Siti Aminah"})! Koordinat: ${lat.toFixed(5)}, ${lng.toFixed(5)}`
+            session: null, incidentId: String(incident.id), channel: "IN_APP", destination: villageId ?? "",
+            templateCode: "SOS", villageId,
+            body: `SOS dari kalung ${deviceId} (${owner})${hasFix ? ` · ${lat.toFixed(5)}, ${lng.toFixed(5)}` : ""}`
           });
-          publish("sos.created", { id: newInc.id, deviceId: "JAGA-052", residentId: resident?.id, severity: "AWAS", status: "NEW", latitude: lat, longitude: lng }, vId ? String(vId) : undefined);
+          if (config.notifyContactsOnSos && residentId) {
+            await notifyResidentContacts(store, {
+              residentId, villageId, incidentId: String(incident.id), templateCode: "SOS_KONTAK",
+              body: `JAGA: ${owner} menekan tombol SOS. Tim desa dan rescue sudah diberi tahu.${mapsLink(hasFix ? lat : null, hasFix ? lng : null)}`
+            }).catch(error => console.warn("[iot] notifikasi kontak gagal:", (error as Error).message));
+          }
+          publish("sos.created", { id: incident.id, deviceId, residentId, severity: "AWAS", status: "NEW", latitude: hasFix ? lat : null, longitude: hasFix ? lng : null }, villageId ?? undefined);
         }
-
-        await store.update("devices", "JAGA-052", {
-          online: true,
-          latitude: lat,
-          longitude: lng,
-          last_seen_at: now,
-          status: "ASSIGNED"
+        await store.update("devices", deviceId, {
+          online: true, last_seen_at: now, status: "ASSIGNED",
+          ...(hasFix ? { latitude: lat, longitude: lng } : {})
         });
-        publish("device.updated", { deviceId: "JAGA-052", status: "DARURAT", state: "BANTUAN", online: true, latitude: lat, longitude: lng }, vId ? String(vId) : undefined);
-        console.log("[JAGA IoT Sync] Sinyal SOS terdeteksi dari kalung fisik JAGA-052");
-      }
-
-      // 2. Kalung ESP32 Dimatikan Teman / Reset ke AMAN
-      else if (isAman && lastKnownEspStatus === "DARURAT") {
-        lastKnownEspStatus = "AMAN";
-        const openIncidents = await store.list("incidents", {
-          eq: { device_id: "JAGA-052" },
-          pred: row => !["SAFE", "CANCELLED", "CLOSED"].includes(String(row.status))
-        });
-        for (const inc of openIncidents) {
-          await store.update("incidents", String(inc.id), { status: "SAFE" });
-          publish("incident.updated", { id: inc.id, status: "SAFE" }, inc.village_id ? String(inc.village_id) : undefined);
+        publish("device.updated", { deviceId, status: "DARURAT", state: "BANTUAN", online: true, ...(hasFix ? { latitude: lat, longitude: lng } : {}) }, villageId ?? undefined);
+        console.log(`[iot] SOS terdeteksi dari kalung ${deviceId}`);
+      } else if (state === "AMAN" && previous === "DARURAT") {
+        for (const incident of await openIncidents()) {
+          await store.update("incidents", String(incident.id), { status: "SAFE" });
+          publish("incident.updated", { id: incident.id, status: "SAFE" }, incident.village_id ? String(incident.village_id) : undefined);
         }
-        await store.update("devices", "JAGA-052", {
-          online: true,
-          last_seen_at: nowIso(),
-          status: "ASSIGNED"
-        });
-        publish("device.updated", { deviceId: "JAGA-052", status: "AMAN", state: "AMAN", online: true });
-        console.log("[JAGA IoT Sync] Kalung fisik JAGA-052 dimatikan / reset ke AMAN");
+        await store.update("devices", deviceId, { online: true, last_seen_at: nowIso(), status: "ASSIGNED" });
+        publish("device.updated", { deviceId, status: "AMAN", state: "AMAN", online: true }, villageId ?? undefined);
+        console.log(`[iot] kalung ${deviceId} kembali AMAN`);
       }
-    } catch {
-      // Abaikan kegagalan jaringan sementara
-    }
-  };
+    };
 
-  const iotSyncInterval = setInterval(syncEsp32Hardware, 2500);
-  iotSyncInterval.unref();
+    const syncHardware = async () => {
+      if (syncing) return;
+      syncing = true;
+      try {
+        for (const [deviceId, data] of Object.entries(await listRtdbDevices())) {
+          await syncDevice(deviceId, data).catch(error => console.warn(`[iot] sinkron ${deviceId} gagal:`, (error as Error).message));
+        }
+      } catch {
+        // Jaringan/Firebase sementara tidak terjangkau
+      } finally {
+        syncing = false;
+      }
+    };
+
+    const iotSyncInterval = setInterval(syncHardware, 2500);
+    iotSyncInterval.unref();
+  }
 });
 
 const shutdown = (signal: string) => {

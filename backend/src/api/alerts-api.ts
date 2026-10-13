@@ -1,4 +1,5 @@
-import { actorOf, notify, record } from "../audit.js";
+import { actorOf, notify, notifyResidentContacts, record } from "../audit.js";
+import { pushAlarmToKnown } from "../iot-firebase.js";
 import { assertVillageAccess, requireRole, scopeIds } from "../auth.js";
 import { badRequest, clean, forbidden, indexBy, isOnline, isUuid, notFound, nowIso, oneOf, optionalText, requireUuid, text } from "../lib.js";
 import { publish } from "../realtime.js";
@@ -127,9 +128,16 @@ export async function createAlert(ctx: Ctx) {
         const destination = String(resident.phone ?? "");
         if (!destination) continue;
         notifications.push(await notify(ctx.store, {
-          session: ctx.session, residentId: String(resident.id), channel: channel as "PUSH" | "SMS" | "EMAIL",
+          session: ctx.session, residentId: String(resident.id), channel: channel as "PUSH" | "SMS" | "EMAIL" | "WHATSAPP",
           destination, templateCode: `ALERT_${severity}`, body: `${severity}: ${message}`, villageId
         }));
+      }
+      // Keluarga/pendamping warga rentan ikut diberi tahu (SMS, dan WhatsApp bila diaktifkan).
+      if (external.some(channel => channel === "SMS" || channel === "WHATSAPP")) {
+        await notifyResidentContacts(ctx.store, {
+          residentId: String(resident.id), villageId, templateCode: `ALERT_${severity}_KONTAK`,
+          body: `JAGA ${severity}: ${message} (peringatan untuk ${resident.full_name ?? "warga"})`
+        }).catch(error => console.warn("[alert] notifikasi kontak gagal:", (error as Error).message));
       }
     }
   }
@@ -149,19 +157,8 @@ export async function createAlert(ctx: Ctx) {
   });
   publish("alert.created", { id: command.id, severity, message, targetType, target }, villageId);
 
-  // Teruskan ke prototipe kalung fisik ESP32 (JAGA-052) via Firebase RTDB
-  const espStatus = severity === "AWAS" ? "DARURAT" : "SIAGA";
-  fetch("https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app/kalung/JAGA-052.json", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      status_alarm: espStatus,
-      sos: espStatus === "DARURAT",
-      siaga: espStatus === "SIAGA",
-      aman: false,
-      last_active: Date.now()
-    })
-  }).catch(() => undefined);
+  // Teruskan ke kalung fisik (ESP32) yang terdaftar di transport Firebase RTDB; hanya perangkat sasaran alarm.
+  void pushAlarmToKnown(devices.map(device => String(device.id)), severity === "AWAS" ? "DARURAT" : "SIAGA");
   return {
     command,
     devicesReached: devices.length,
@@ -202,7 +199,7 @@ export async function emergencyAlert(ctx: Ctx) {
 
 const channelsFor = (value: unknown): string[] => {
   const list = Array.isArray(value) ? value.map(String) : value ? [String(value)] : ["IN_APP"];
-  const valid = list.filter(entry => ["IN_APP", "PUSH", "SMS", "EMAIL"].includes(entry));
+  const valid = list.filter(entry => ["IN_APP", "PUSH", "SMS", "WHATSAPP", "EMAIL"].includes(entry));
   return valid.length ? valid : ["IN_APP"];
 };
 
@@ -349,19 +346,7 @@ export async function activeAlarmFor(store: Ctx["store"], deviceId: string): Pro
 export async function releaseDeviceAlarm(store: Ctx["store"], deviceId: string): Promise<void> {
   const receipts = (await store.list("command_receipts", { eq: { device_id: deviceId } })).filter(row => !row.released_at);
   for (const row of receipts) await store.update("command_receipts", String(row.id), { released_at: nowIso() });
-  if (deviceId === "JAGA-052") {
-    fetch("https://jaga-51a35-default-rtdb.asia-southeast1.firebasedatabase.app/kalung/JAGA-052.json", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        status_alarm: "AMAN",
-        sos: false,
-        siaga: false,
-        aman: true,
-        last_active: Date.now()
-      })
-    }).catch(() => undefined);
-  }
+  void pushAlarmToKnown([deviceId], "AMAN");
 }
 
 /** Melepas seluruh alarm kalung di sebuah desa (dipakai saat operasi ditutup). */
