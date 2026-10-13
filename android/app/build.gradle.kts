@@ -14,8 +14,8 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
-        // Alamat backend: menggunakan IP laptop di jaringan Wi-Fi agar bisa diakses dari HP fisik.
-        buildConfigField("String", "API_BASE", "\"http://192.168.1.26:3000/api\"")
+        // Alamat backend di Railway (HTTPS).
+        buildConfigField("String", "API_BASE", "\"https://jaga.up.railway.app/api\"")
     }
 
     buildFeatures {
