@@ -583,10 +583,10 @@ function viewDesaBeranda() {
         ${kpi({ icon: 'alert', label: 'SOS aktif', value: D.incidents.filter(isActive).length, hint: 'Perlu ditindaklanjuti', tone: D.incidents.some(isActive) ? 'red' : '' })}
         ${kpi({ icon: 'check', label: 'Warga dinyatakan aman', value: D.safety?.safe ?? 0, hint: `${D.safety?.waitingHelp ?? 0} menunggu bantuan` })}
       </div>
-      <div class="grid two">
+      <div class="grid two items-start">
         ${card({ title: 'Peta desa', sub: 'Titik warga, zona bahaya, dan titik kumpul', flush: true, extra: 'has-legend', body: `<div class="map-box" data-map="village"></div>${mapLegend('village')}` })}
         <div class="stack">
-          ${card({ title: 'Perlu tindak lanjut', sub: `${items.length} hal`, flush: true, body: items.length ? `<div class="list">${items.slice(0, 7).map(i => attentionRow(i.tone, i.name, i.title, i.sub)).join('')}</div>` : empty('Semua terkendali', 'Tidak ada hal mendesak saat ini.') })}
+          ${card({ title: 'Perlu tindak lanjut', sub: `${items.length} hal`, flush: true, body: items.length ? `<div class="list scrollable-list attention-list">${items.map(i => attentionRow(i.tone, i.name, i.title, i.sub)).join('')}</div>` : empty('Semua terkendali', 'Tidak ada hal mendesak saat ini.') })}
           ${breakdown.length ? card({ title: 'Status warga', flush: true, body: `<div class="list">${breakdown.map(b => `<div class="row-item"><span class="dot ${({ safe: 'green', inProgress: 'blue', waiting: 'orange', normal: 'gray' })[b.key] || 'gray'}"></span><div class="grow"><b>${esc(b.label)}</b></div><b>${b.value}</b></div>`).join('')}</div>` }) : ''}
         </div>
       </div>
@@ -599,9 +599,9 @@ function viewDesaAlarm() {
   const levels = [['NORMAL','Normal','Kondisi aman. Pemantauan biasa.'],['WASPADA', 'Waspada', 'Peringatan dini. Kalung bergetar pelan, siapkan warga.'], ['SIAGA', 'Siaga', 'Bersiap mengungsi. Tim Rescue diaktifkan.'], ['AWAS', 'Awas', 'Evakuasi segera! Kalung bunyi keras. Rescue dikerahkan penuh.']];
   const devices = D.devices.filter(d => d.residentId);
   const opens = ['SIAGA', 'AWAS'].includes(a.severity) && a.target === 'ALL';
-  const history = D.alerts.slice(0, 8);
-  const form = `<form data-form="alarm-review" class="card-body" style="display:grid;gap:18px">
-    <div><div class="field"><span>Tingkat peringatan</span></div><div class="levels" style="margin-top:8px">
+  const history = D.alerts;
+  const form = `<form data-form="alarm-review" class="card-body" style="display:grid;gap:12px;align-content:start">
+    <div><div class="field"><span>Tingkat peringatan</span></div><div class="levels" style="margin-top:6px">
       ${levels.map(([v, l, h]) => `<button type="button" class="level ${v} ${a.severity === v ? 'active' : ''}" data-action="severity" data-value="${v}"><b>${l}</b><small>${h}</small></button>`).join('')}</div></div>
     <label class="field">Target<select data-bind="alarm.target"><option value="ALL" ${a.target === 'ALL' ? 'selected' : ''}>Seluruh kalung di desa</option><optgroup label="Kelompok">${[['DISABILITAS', 'Penyandang disabilitas'], ['LANSIA', 'Lansia'], ['IBU_HAMIL', 'Ibu hamil']].map(([code, label]) => `<option value="GROUP:${code}" ${a.target === `GROUP:${code}` ? 'selected' : ''}>${label}</option>`).join('')}</optgroup><optgroup label="Satu kalung">${devices.map(d => `<option value="${esc(d.id)}" ${a.target === d.id ? 'selected' : ''}>${esc(d.residentName || d.ownerName || d.id)} · ${esc(d.id)}</option>`).join('')}</optgroup></select></label>
     <div class="form-grid"><label class="field">Tinggi air terpantau (cm)<input type="number" min="0" max="2000" placeholder="mis. 100 untuk 1 meter" value="${esc(a.waterLevelCm)}" data-bind="alarm.waterLevelCm"><small>Masukkan berdasarkan pengamatan lapangan.</small></label>
@@ -610,9 +610,9 @@ function viewDesaAlarm() {
     <label class="field">Pesan instruksi untuk Tim Rescue<textarea placeholder="${esc(DEFAULT_MESSAGE[a.severity])}" data-bind="alarm.message">${esc(a.message)}</textarea><small>Tim Rescue akan membaca pesan ini saat memulai operasi. Kosongkan untuk memakai pesan standar.</small></label>
     ${opens ? callout({ tone: 'yellow', icon: 'signal', title: 'Alarm ini membuka operasi Rescue', text: 'JAGA Rescue akan melihat warga berkalung di desa selama operasi berjalan.' }) : ''}
     <button type="submit" class="btn primary block">${icon('bell')} Tinjau & aktifkan alarm</button></form>`;
-  const historyBody = history.length ? `<div class="list">${history.map(h => `<div class="row-item"><span class="row-icon ${SEVERITY[h.severity]?.[1] || ''}">${icon('bell')}</span><div class="grow"><b>${esc(h.message || h.target)}</b><small>${esc(h.target)} · ${esc(timeAgo(h.createdAt))}</small></div>${severityBadge(h.severity)}<small>${h.receipts?.acknowledged ?? 0}/${h.receipts?.total ?? 0} dikonfirmasi</small></div>`).join('')}</div>` : empty('Belum ada alarm', '', 'bell');
+  const historyBody = history.length ? `<div class="list scrollable-list alert-history-list">${history.map(h => `<div class="row-item"><span class="row-icon ${SEVERITY[h.severity]?.[1] || ''}">${icon('bell')}</span><div class="grow"><b>${esc(h.message || h.target)}</b><small>${esc(h.target)} · ${esc(timeAgo(h.createdAt))}</small></div>${severityBadge(h.severity)}<small>${h.receipts?.acknowledged ?? 0}/${h.receipts?.total ?? 0} dikonfirmasi</small></div>`).join('')}</div>` : empty('Belum ada alarm', '', 'bell');
   return `${pageHead('Alarm & operasi', 'Bunyikan alarm ke kalung warga setelah kondisi diverifikasi. Anda yang paling tahu keadaan lapangan.')}
-    <div class="grid two">${card({ title: 'Aktifkan alarm', sub: 'Dikonfirmasi manusia sebelum dikirim', flush: true, body: form })}
+    <div class="grid two items-start">${card({ title: 'Aktifkan alarm', sub: 'Dikonfirmasi manusia sebelum dikirim', flush: true, body: form })}
       <div class="stack">${D.operations.length ? D.operations.map(operationCard).join('') : ''}${card({ title: 'Riwayat Peringatan (Desa ini)', flush: true, body: historyBody })}</div></div>
     <div class="stack" style="margin-top:20px">${card({ title: 'Laporan pasca-operasi Rescue', sub: `${D.reports.length} laporan`, flush: true, body: reportsTable() })}</div>`;
 }

@@ -122,15 +122,17 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .page-head p { color: var(--muted); margin-top: 8px; max-width: 64ch; font-size: 14px; }
 .page-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .stack { display: grid; gap: 20px; }
-.grid { display: grid; gap: 20px; }
+.grid { display: grid; gap: 20px; align-items: start; }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 4px; }
-.two { grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr); }
-.two-even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.rescue-home { grid-template-columns: minmax(0, 1.2fr) minmax(340px, .9fr); }
+.two { grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr); align-items: start; }
+.two-even { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.rescue-home { grid-template-columns: minmax(0, 1.2fr) minmax(340px, .9fr); align-items: start; }
+.items-start { align-items: start; }
 
 /* -------------------------------------------------------------------- Kartu */
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; display: flex; flex-direction: column; }
 .card > .card-body, .card .card-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.card-body form, form.card-body, [data-form] { align-content: start; justify-content: start; }
 .card-body .table-wrap, .card-body .list, .card-body .chips, .card-body .toolbar, .card-body .form-grid, .card-body .checks { flex: none; }
 .card-body .empty { flex: 1; }
 .card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 18px 22px 14px; flex-wrap: wrap; }
@@ -244,12 +246,12 @@ td small { display: block; margin-top: 2px; }
 .segmented button.active { background: #fff; color: var(--green-800); box-shadow: 0 1px 4px rgba(0, 0, 0, .1); }
 
 /* ------------------------------------------------------------------ Form */
-.field { display: grid; gap: 8px; align-content: start; font-weight: 700; font-size: 12px; color: var(--ink); }
-.field small { font-weight: 500; }
-.field input:not([type=checkbox]):not([type=radio]), .field select, .field textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 13px; background: #fff; font-weight: 500; }
-.field textarea { min-height: 84px; resize: vertical; }
+.field { display: grid; gap: 6px; align-content: start; font-weight: 700; font-size: 12px; color: var(--ink); }
+.field small { font-weight: 500; font-size: 11.5px; color: var(--muted); }
+.field input:not([type=checkbox]):not([type=radio]), .field select, .field textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 13px; background: #fff; font-weight: 500; font-size: 13px; }
+.field textarea { min-height: 72px; resize: vertical; }
 .field input:focus, .field select:focus, .field textarea:focus { outline: 0; border-color: var(--green-600); box-shadow: 0 0 0 4px rgba(47, 125, 78, .13); }
-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .form-grid .wide { grid-column: 1 / -1; }
 .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
 .check { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff; font-weight: 600; font-size: 13px; cursor: pointer; }
@@ -259,9 +261,9 @@ td small { display: block; margin-top: 2px; }
 fieldset { border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; margin: 0; }
 legend { padding: 0 8px; font: 800 12px var(--font-head); color: var(--green-800); }
 .levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.level { padding: 16px 14px; border: 2px solid var(--line); border-radius: 16px; background: #fff; text-align: left; }
-.level b { display: block; font: 800 15px var(--font-head); }
-.level small { display: block; margin-top: 4px; }
+.level { padding: 14px 12px; border: 2px solid var(--line); border-radius: 16px; background: #fff; text-align: left; }
+.level b { display: block; font: 800 14px var(--font-head); }
+.level small { display: block; margin-top: 4px; font-size: 11.5px; }
 .level.NORMAL.active { border-color: var(--ok); background: var(--ok-bg); }
 .level.WASPADA.active { border-color: #d9b400; background: var(--yellow-bg); }
 .level.SIAGA.active { border-color: var(--orange); background: var(--orange-bg); }
@@ -287,6 +289,13 @@ select:hover { border-color: #ccd8cf; }
 .weather-item strong { color: var(--green-800); font: 800 20px var(--font-head); }
 .weather-item em { color: var(--muted); font-size: 12px; font-style: normal; }
 .announcement-history .list { max-height: 520px; overflow-y: auto; overscroll-behavior: contain; }
+.scrollable-list { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.scrollable-list::-webkit-scrollbar { width: 6px; }
+.scrollable-list::-webkit-scrollbar-track { background: transparent; }
+.scrollable-list::-webkit-scrollbar-thumb { background: #cfd8d2; border-radius: 4px; }
+.scrollable-list::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+.attention-list { max-height: 260px; }
+.alert-history-list { max-height: 420px; }
 .firmware-list { display: grid; gap: 8px; }
 .firmware-list > div { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 11px 13px; border: 1px solid var(--line-soft); border-radius: 12px; }
 .firmware-list span { color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
