@@ -612,7 +612,7 @@ function viewDesaAlarm() {
     <button type="submit" class="btn primary block">${icon('bell')} Tinjau & aktifkan alarm</button></form>`;
   const historyBody = history.length ? `<div class="list scrollable-list alert-history-list">${history.map(h => `<div class="row-item"><span class="row-icon ${SEVERITY[h.severity]?.[1] || ''}">${icon('bell')}</span><div class="grow"><b>${esc(h.message || h.target)}</b><small>${esc(h.target)} · ${esc(timeAgo(h.createdAt))}</small></div>${severityBadge(h.severity)}<small>${h.receipts?.acknowledged ?? 0}/${h.receipts?.total ?? 0} dikonfirmasi</small></div>`).join('')}</div>` : empty('Belum ada alarm', '', 'bell');
   return `${pageHead('Alarm & operasi', 'Bunyikan alarm ke kalung warga setelah kondisi diverifikasi. Anda yang paling tahu keadaan lapangan.')}
-    <div class="grid two items-start alarm-grid">${card({ title: 'Aktifkan alarm', sub: 'Dikonfirmasi manusia sebelum dikirim', flush: true, extra: 'alarm-card', body: form })}
+    <div class="grid two alarm-grid">${card({ title: 'Aktifkan alarm', sub: 'Dikonfirmasi manusia sebelum dikirim', flush: true, extra: 'alarm-card', body: form })}
       <div class="stack alert-history-col">${D.operations.length ? D.operations.map(operationCard).join('') : ''}${card({ title: 'Riwayat Peringatan (Desa ini)', flush: true, extra: 'alert-history-card', body: historyBody })}</div></div>
     <div class="stack" style="margin-top:20px">${card({ title: 'Laporan pasca-operasi Rescue', sub: `${D.reports.length} laporan`, flush: true, body: reportsTable() })}</div>`;
 }
@@ -891,26 +891,31 @@ function observeAlarmCard() {
   if (!alarmCard || !historyCard) return;
 
   const sync = () => {
-    const h = alarmCard.offsetHeight;
+    const h = alarmCard.getBoundingClientRect().height || alarmCard.offsetHeight;
     if (h > 0) {
       const ops = $$('.alert-history-col .op-card');
       let opsH = 0;
-      ops.forEach(op => { opsH += op.offsetHeight + 20; });
-      const targetH = Math.max(260, h - opsH);
-      historyCard.style.height = `${targetH}px`;
+      ops.forEach(op => { opsH += (op.getBoundingClientRect().height || op.offsetHeight) + 20; });
+      const targetH = Math.max(260, Math.round(h - opsH));
+      historyCard.style.setProperty('height', `${targetH}px`, 'important');
+      historyCard.style.setProperty('min-height', `${targetH}px`, 'important');
+      historyCard.style.setProperty('max-height', `${targetH}px`, 'important');
       const head = historyCard.querySelector('.card-head');
-      const headH = head ? head.offsetHeight : 54;
+      const headH = head ? (head.getBoundingClientRect().height || head.offsetHeight) : 54;
       const list = historyCard.querySelector('.alert-history-list');
       if (list) {
         const listH = Math.max(120, targetH - headH);
-        list.style.height = `${listH}px`;
-        list.style.maxHeight = `${listH}px`;
-        list.style.overflowY = 'auto';
+        list.style.setProperty('height', `${listH}px`, 'important');
+        list.style.setProperty('max-height', `${listH}px`, 'important');
+        list.style.setProperty('overflow-y', 'auto', 'important');
       }
     }
   };
 
   sync();
+  setTimeout(sync, 40);
+  setTimeout(sync, 150);
+  setTimeout(sync, 400);
   if (window.ResizeObserver) {
     alarmResizeObserver = new ResizeObserver(() => sync());
     alarmResizeObserver.observe(alarmCard);
