@@ -27,7 +27,7 @@ class JagaRepository(private val api: JagaApi) {
     suspend fun iotStatus(): IotDeviceStatus = api.iotStatus()
     suspend fun assignTeam(incidentId: String, teamId: String) = api.assignTeam(incidentId, teamId)
     suspend fun updateIncident(id: String, status: String) = api.updateIncident(id, status)
-    suspend fun sendVillageAlert(villageId: String, severity: String, message: String) = api.sendVillageAlert(villageId, severity, message)
+    suspend fun sendVillageAlert(villageId: String, severity: String, message: String, teamId: String? = null) = api.sendVillageAlert(villageId, severity, message, teamId)
     suspend fun setIotAlarm(status: String) = api.setIotAlarm(status)
     suspend fun pusatSnapshot(): PusatSnapshot = api.pusatSnapshot()
     suspend fun resolveTicket(ticketId: String, note: String) = api.resolveTicket(ticketId, note)

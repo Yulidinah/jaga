@@ -25,8 +25,8 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("String", "API_BASE", "\"http://10.0.2.2:3000/api\"")
-            buildConfigField("String", "WEB_BASE", "\"http://10.0.2.2:3000\"")
+            buildConfigField("String", "API_BASE", "\"https://jaga.up.railway.app/api\"")
+            buildConfigField("String", "WEB_BASE", "\"https://jaga.up.railway.app\"")
         }
         release {
             isMinifyEnabled = false

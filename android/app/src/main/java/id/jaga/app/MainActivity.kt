@@ -80,6 +80,8 @@ object Strings {
     fun resetSafe(lang: AppLanguage) = if (lang == AppLanguage.ID) "Reset AMAN" else "Reset SAFE"
     fun closeCase(lang: AppLanguage) = if (lang == AppLanguage.ID) "Tutup Kasus" else "Close Case"
     fun deployTeamBtn(lang: AppLanguage) = if (lang == AppLanguage.ID) "Kerahkan Tim" else "Deploy Team"
+    fun chooseRescueTeam(lang: AppLanguage) = if (lang == AppLanguage.ID) "Kerahkan ke Tim Rescue Khusus:" else "Deploy to Specific Rescue Team:"
+    fun allRescueTeams(lang: AppLanguage) = if (lang == AppLanguage.ID) "Seluruh Tim Wilayah" else "All Regional Teams"
     fun deviceLabel(lang: AppLanguage) = if (lang == AppLanguage.ID) "Kalung" else "Necklace"
 }
 
@@ -111,6 +113,7 @@ class JagaViewModel(private val prefs: SessionStore) : ViewModel() {
     var message by mutableStateOf("Memeriksa sesi...")
     var busy by mutableStateOf(false)
     var selectedIncidentForDeployment by mutableStateOf<Incident?>(null)
+    var selectedTeamForAlert by mutableStateOf<RescueTeam?>(null)
     private var poller: Job? = null
 
     val role: String get() = session?.role ?: ""
@@ -267,9 +270,10 @@ class JagaViewModel(private val prefs: SessionStore) : ViewModel() {
             "SIAGA" -> "Siaga: Air mulai naik, persiapkan dokumen dan evakuasi mandiri."
             else -> "Kondisi kembali normal dan terkendali."
         }
-        runCatching { repository.sendVillageAlert(villageId, severity, text) }
+        runCatching { repository.sendVillageAlert(villageId, severity, text, selectedTeamForAlert?.id) }
             .onSuccess {
-                message = if (language == AppLanguage.ID) "Sinyal $severity disiarkan ke $it kalung warga" else "Signal $severity sent to $it necklaces"
+                val teamSuffix = if (selectedTeamForAlert != null) " (Diarahkan ke ${selectedTeamForAlert?.name})" else ""
+                message = if (language == AppLanguage.ID) "Sinyal $severity disiarkan ke $it kalung warga$teamSuffix" else "Signal $severity sent to $it necklaces$teamSuffix"
             }
             .onFailure { message = it.message ?: "Gagal menyiarkan sinyal desa" }
         busy = false
@@ -629,6 +633,25 @@ private fun HomeScreen(vm: JagaViewModel) {
                             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Text(Strings.alarmHeader(vm.language), fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Danger)
                                 Text(Strings.alarmSub(vm.language), color = Color(0xFF912219), fontSize = 13.sp)
+                                if (vm.teams.isNotEmpty()) {
+                                    Text(Strings.chooseRescueTeam(vm.language), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Danger)
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        item {
+                                            FilterChip(
+                                                selected = vm.selectedTeamForAlert == null,
+                                                onClick = { vm.selectedTeamForAlert = null },
+                                                label = { Text(Strings.allRescueTeams(vm.language), fontSize = 11.sp) }
+                                            )
+                                        }
+                                        items(vm.teams) { team ->
+                                            FilterChip(
+                                                selected = vm.selectedTeamForAlert?.id == team.id,
+                                                onClick = { vm.selectedTeamForAlert = if (vm.selectedTeamForAlert?.id == team.id) null else team },
+                                                label = { Text(team.name, fontSize = 11.sp) }
+                                            )
+                                        }
+                                    }
+                                }
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                                     Button(
                                         onClick = { vm.broadcastVillage("SIAGA") },

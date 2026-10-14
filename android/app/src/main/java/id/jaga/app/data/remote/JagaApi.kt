@@ -193,17 +193,18 @@ class JagaApi(var baseUrl: String = BuildConfig.API_BASE) {
         Unit
     }
 
-    suspend fun sendVillageAlert(villageId: String, severity: String, message: String): Int = withContext(Dispatchers.IO) {
+    suspend fun sendVillageAlert(villageId: String, severity: String, message: String, teamId: String? = null): Int = withContext(Dispatchers.IO) {
         val connection = open("/alerts", "POST")
         connection.outputStream.bufferedWriter().use {
-            it.write(
-                JSONObject()
-                    .put("villageId", villageId)
-                    .put("targetType", "DESA")
-                    .put("severity", severity)
-                    .put("message", message)
-                    .toString()
-            )
+            val body = JSONObject()
+                .put("villageId", villageId)
+                .put("targetType", "DESA")
+                .put("severity", severity)
+                .put("message", message)
+            if (!teamId.isNullOrBlank()) {
+                body.put("teamId", teamId)
+            }
+            it.write(body.toString())
         }
         JSONObject(read(connection)).getJSONObject("data").getInt("devicesReached")
     }
