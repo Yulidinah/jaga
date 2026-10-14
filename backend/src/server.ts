@@ -351,15 +351,20 @@ server.listen(config.port, () => {
       }
       if (state === "AMAN") clearBackendEcho(deviceId);
 
-      if (state === "DARURAT" && previous !== "DARURAT") {
+      const activeList = await openIncidents();
+      const needsSosIncident = state === "DARURAT" && (previous !== "DARURAT" || !activeList.length);
+
+      if (needsSosIncident) {
         const valid = (value: unknown) => { const n = Number(value); return value !== null && value !== undefined && Number.isFinite(n) && n !== 0 ? n : null; };
-        const lat = valid(data.lat) ?? config.iotFallbackLat;
-        const lng = valid(data.lng) ?? config.iotFallbackLng;
+        const rawLat = valid(data.lat);
+        const lat = rawLat !== null ? Math.abs(rawLat) : config.iotFallbackLat;
+        const rawLng = valid(data.lng);
+        const lng = rawLng !== null ? rawLng : config.iotFallbackLng;
         const hasFix = true;
         const now = nowIso();
         const owner = String(resident?.full_name ?? dev.owner_name ?? deviceId);
 
-        if (!(await openIncidents()).length) {
+        if (!activeList.length) {
           const incident = await store.insert("incidents", {
             resident_id: residentId, village_id: villageId, device_id: deviceId, owner_name: owner,
             status: "NEW", severity: "AWAS", disaster_type: "SOS Kalung",
@@ -377,10 +382,34 @@ server.listen(config.port, () => {
               body: `JAGA: ${owner} menekan tombol SOS. Tim desa dan rescue sudah diberi tahu.${mapsLink(hasFix ? lat : null, hasFix ? lng : null)}`
             }).catch(error => console.warn("[iot] notifikasi kontak gagal:", (error as Error).message));
           }
+
+          // Otomatis buka operasi darurat agar Rescue langsung dapat melihat roster warga
+          if (villageId) {
+            try {
+              const activeOp = await store.one("operations", { eq: { village_id: villageId, status: "ACTIVE" } });
+              if (!activeOp) {
+                const newOp = await store.insert("operations", {
+                  village_id: villageId,
+                  status: "ACTIVE",
+                  severity: "AWAS",
+                  disaster_type: "BANJIR",
+                  area_type: "DESA",
+                  water_level_cm: null,
+                  note: `Operasi darurat dibuka otomatis dari sinyal SOS kalung ${deviceId} (${owner})`,
+                  opened_at: now
+                });
+                publish("operation.opened", { id: newOp.id, severity: "AWAS", villageId, areaType: "DESA" }, villageId);
+                console.log(`[iot] operasi darurat dibuka otomatis untuk desa ${villageId} akibat SOS kalung ${deviceId}`);
+              }
+            } catch (opErr) {
+              console.warn("[iot] gagal membuka operasi darurat otomatis:", (opErr as Error).message);
+            }
+          }
+
           publish("sos.created", { id: incident.id, deviceId, residentId, severity: "AWAS", status: "NEW", latitude: hasFix ? lat : null, longitude: hasFix ? lng : null }, villageId ?? undefined);
         }
         await store.update("devices", deviceId, {
-          online: true, last_seen_at: now, status: "ASSIGNED",
+          online: true, last_seen_at: now, location_at: now, status: "ASSIGNED",
           ...(hasFix ? { latitude: lat, longitude: lng } : {})
         });
         publish("device.updated", { deviceId, status: "DARURAT", state: "BANTUAN", online: true, ...(hasFix ? { latitude: lat, longitude: lng } : {}) }, villageId ?? undefined);

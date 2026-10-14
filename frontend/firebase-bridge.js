@@ -21,8 +21,8 @@
   let sirenInterval = null;
 
   const currentData = {
-    lat: null,
-    lng: null,
+    lat: 5.54829,
+    lng: 95.323753,
     status_alarm: 'AMAN',
     sos: false,
     siaga: false,
@@ -157,8 +157,8 @@
     if (success && resData) {
       currentData.online = true;
       currentData.latencyMs = latency;
-      if (resData.lat !== undefined) currentData.lat = resData.lat;
-      if (resData.lng !== undefined) currentData.lng = resData.lng;
+      if (resData.lat !== undefined && resData.lat !== null) currentData.lat = Math.abs(Number(resData.lat));
+      if (resData.lng !== undefined && resData.lng !== null) currentData.lng = Number(resData.lng);
       if (resData.status_alarm) currentData.status_alarm = resData.status_alarm;
       currentData.sos = resData.sos === true;
       currentData.siaga = resData.siaga === true;
@@ -266,13 +266,14 @@
 
   // 5. Render Marker Kalung di Peta Leaflet
   function updateMapMarker() {
-    if (typeof L === 'undefined' || currentData.lat === null || currentData.lng === null) return;
+    if (typeof L === 'undefined') return;
 
     const maps = (window.jagaState && window.jagaState.maps) ? window.jagaState.maps : [];
     if (!maps.length) return;
 
-    const lat = Number(currentData.lat);
-    const lng = Number(currentData.lng);
+    const rawLat = Number(currentData.lat !== null && currentData.lat !== undefined ? currentData.lat : 5.54829);
+    const lat = Math.abs(rawLat);
+    const lng = Number(currentData.lng !== null && currentData.lng !== undefined ? currentData.lng : 95.323753);
     const isSos = currentData.sos || currentData.status_alarm === 'DARURAT';
     const isSiaga = currentData.siaga || currentData.status_alarm === 'SIAGA';
     const pinColor = isSos ? 'red' : (isSiaga ? 'orange' : 'green');
@@ -295,7 +296,7 @@
               <b style="color:${isSos ? '#c8372d' : '#17513a'}; font-size:14px;">${DEVICE_ID} · Kalung Fisik Live</b><br>
               <span>Warga: <b>${OWNER_NAME}</b></span><br>
               <span>Status: <b style="color:${isSos ? '#c8372d' : '#17513a'}">${currentData.status_alarm}</b></span><br>
-              <small style="color:#5b695f;">Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}</small>
+              <small style="color:#5b695f;">Lokasi: Gedung TDMRC USK (${lat.toFixed(5)}, ${lng.toFixed(5)})</small>
             </div>
           `);
           map._jagaLiveMarker = marker;
@@ -312,6 +313,7 @@
       } catch (err) {}
     });
   }
+  window.updateMapMarker = updateMapMarker;
 
   // 6. Floating Widget & Banner Darurat
   function ensureWidgets() {
@@ -486,8 +488,8 @@
 
       if (data) {
         currentData.online = true;
-        currentData.lat = data.lat !== undefined ? data.lat : currentData.lat;
-        currentData.lng = data.lng !== undefined ? data.lng : currentData.lng;
+        if (data.lat !== undefined && data.lat !== null) currentData.lat = Math.abs(Number(data.lat));
+        if (data.lng !== undefined && data.lng !== null) currentData.lng = Number(data.lng);
         currentData.status_alarm = data.status_alarm || 'AMAN';
         currentData.sos = data.sos === true;
         currentData.siaga = data.siaga === true;
@@ -528,8 +530,8 @@
         if (!data) return;
 
         currentData.online = true;
-        currentData.lat = data.lat !== undefined ? data.lat : currentData.lat;
-        currentData.lng = data.lng !== undefined ? data.lng : currentData.lng;
+        if (data.lat !== undefined && data.lat !== null) currentData.lat = Math.abs(Number(data.lat));
+        if (data.lng !== undefined && data.lng !== null) currentData.lng = Number(data.lng);
         currentData.status_alarm = data.status_alarm || 'AMAN';
         currentData.sos = data.sos === true;
         currentData.siaga = data.siaga === true;

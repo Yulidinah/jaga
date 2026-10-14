@@ -173,7 +173,7 @@ export async function createAlert(ctx: Ctx) {
   publish("alert.created", { id: command.id, severity, message, targetType, target, teamId: chosenTeamId || null }, villageId);
 
   // Teruskan ke kalung fisik (ESP32) yang terdaftar di transport Firebase RTDB; hanya perangkat sasaran alarm.
-  void pushAlarmToKnown(devices.map(device => String(device.id)), severity === "AWAS" ? "DARURAT" : "SIAGA");
+  void pushAlarmToKnown(devices.map(device => String(device.id)), severity === "AWAS" ? "DARURAT" : severity === "SIAGA" ? "SIAGA" : "AMAN");
   return {
     command,
     devicesReached: devices.length,
@@ -421,27 +421,36 @@ export async function statusBoard(ctx: Ctx) {
     const receipt = mine[0] ?? null;
     const command = receipt ? commandOf.get(String(receipt.command_id)) ?? null : null;
     const alarmLive = Boolean(receipt && command && !receipt.released_at && (!command.expires_at || String(command.expires_at) > now) && !["EXPIRED", "FAILED"].includes(String(command.status)));
-    const incident = command
+    const activeIncident = incidents
+      .filter(row => String(row.device_id) === String(device.id) && !["SAFE", "CANCELLED", "CLOSED"].includes(String(row.status)))
+      .sort((x, y) => String(y.created_at).localeCompare(String(x.created_at)))[0] ?? null;
+    const incident = activeIncident ?? (command
       ? incidents.filter(row => String(row.device_id) === String(device.id)
-          && (String(row.created_at) >= String(command.created_at) || String(row.updated_at ?? row.closed_at ?? "") >= String(command.created_at)
-            || !["SAFE", "CANCELLED", "CLOSED"].includes(String(row.status))))
+          && (String(row.created_at) >= String(command.created_at) || String(row.updated_at ?? row.closed_at ?? "") >= String(command.created_at)))
           .sort((x, y) => String(y.created_at).localeCompare(String(x.created_at)))[0] ?? null
-      : null;
+      : incidents.filter(row => String(row.device_id) === String(device.id))
+          .sort((x, y) => String(y.created_at).localeCompare(String(x.created_at)))[0] ?? null);
     let state = "NORMAL";
     if (incident && ["SAFE", "EVACUATED"].includes(String(incident.status))) state = "AMAN";
     else if (incident && String(incident.status) === "NOT_FOUND") state = "TIDAK_DITEMUKAN";
     else if (incident && String(incident.status) === "UNREACHABLE") state = "TIDAK_TERJANGKAU";
-    else if (incident || (alarmLive && receipt?.assistance_requested_at)) state = "BANTUAN";
+    else if (activeIncident || (incident && !["SAFE", "CANCELLED", "CLOSED"].includes(String(incident.status)))) state = "BANTUAN";
+    else if (alarmLive && receipt?.assistance_requested_at) state = "BANTUAN";
     else if (alarmLive && (["FAILED", "EXPIRED"].includes(String(receipt?.status)) || !isOnline(device))) state = "TIDAK_TERJANGKAU";
     else if (alarmLive) state = "MENUNGGU";
+
+    const alarmSeverity = alarmLive ? command?.severity ?? null : (activeIncident?.severity ?? incident?.severity ?? null);
+    const alarmAt = alarmLive ? command?.created_at ?? null : (activeIncident?.created_at ?? incident?.created_at ?? null);
+    const assistanceAt = receipt?.assistance_requested_at ?? (activeIncident ? activeIncident.created_at : null);
+
     return {
       villageId: resident.village_id, villageName: villageOf.get(String(resident.village_id))?.name ?? null,
       residentId: resident.id, residentName: resident.full_name, deviceId: device.id,
       online: isOnline(device), battery: device.battery ?? null,
       state, stateLabel: BOARD_LABEL[state],
-      alarmSeverity: alarmLive ? command?.severity ?? null : null,
-      alarmAt: command?.created_at ?? null,
-      assistanceAt: receipt?.assistance_requested_at ?? null,
+      alarmSeverity,
+      alarmAt,
+      assistanceAt,
       incidentId: incident?.id ?? null, incidentStatus: incident?.status ?? null
     };
   }).filter((row): row is NonNullable<typeof row> => row !== null);

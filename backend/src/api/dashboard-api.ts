@@ -136,13 +136,29 @@ export async function mapData(ctx: Ctx) {
   // Rescue hanya melihat pemakai kalung di area operasi aktif; peran lain melihat seluruh lingkupnya.
   const visible = ctx.session.role === "RESCUE" ? await rescueVisible(ctx) : null;
   const residentIds = residents.map(row => String(row.id));
-  const vulns = residentIds.length ? await ctx.store.list("resident_vulnerabilities", { in: { resident_id: residentIds } }) : [];
+  const [vulns, assignments] = await Promise.all([
+    residentIds.length ? ctx.store.list("resident_vulnerabilities", { in: { resident_id: residentIds } }) : [],
+    residentIds.length ? ctx.store.list("device_assignments", { in: { resident_id: residentIds }, isNull: { unassigned_at: true } }) : []
+  ]);
   const types = await ctx.store.list("vulnerability_types", {});
   const typeMap = indexBy(types, row => String(row.id));
   const severityByResident = new Map<string, number>();
   for (const vuln of vulns) {
     const key = String(vuln.resident_id);
     severityByResident.set(key, Math.max(severityByResident.get(key) ?? 0, Number(vuln.severity ?? 1)));
+  }
+
+  const activeIncByResident = new Map<string, Row>();
+  for (const inc of incidents) {
+    if (!CLOSED.has(String(inc.status)) && inc.resident_id) {
+      activeIncByResident.set(String(inc.resident_id), inc);
+    }
+  }
+  const deviceMap = indexBy(devices, row => String(row.id));
+  const deviceByResident = new Map<string, Row>();
+  for (const da of assignments) {
+    const dev = deviceMap.get(String(da.device_id));
+    if (dev) deviceByResident.set(String(da.resident_id), dev);
   }
 
   return {
@@ -160,19 +176,27 @@ export async function mapData(ctx: Ctx) {
     residents: residents
       .filter(row => row.latitude !== null && row.longitude !== null)
       .filter(row => !visible || visible.residentIds.has(String(row.id)))
-      .map(row => ({
-        id: row.id,
-        villageId: row.village_id,
-        fullName: ctx.session.role === "RESCUE" ? "Warga rentan" : row.full_name,
-        latitude: row.latitude,
-        longitude: row.longitude,
-        livesAlone: row.lives_alone === true,
-        severity: severityByResident.get(String(row.id)) ?? 0,
-        categories: vulns
-          .filter(vuln => String(vuln.resident_id) === String(row.id))
-          .map(vuln => typeMap.get(String(vuln.vulnerability_type_id))?.category)
-          .filter(Boolean)
-      })),
+      .map(row => {
+        const id = String(row.id);
+        const activeInc = activeIncByResident.get(id);
+        const dev = deviceByResident.get(id);
+        const hasLiveGps = dev && dev.latitude != null && dev.longitude != null;
+        const liveLat = activeInc?.latitude != null ? Number(activeInc.latitude) : (hasLiveGps ? Number(dev?.latitude) : Number(row.latitude));
+        const liveLng = activeInc?.longitude != null ? Number(activeInc.longitude) : (hasLiveGps ? Number(dev?.longitude) : Number(row.longitude));
+        return {
+          id: row.id,
+          villageId: row.village_id,
+          fullName: ctx.session.role === "RESCUE" ? "Warga rentan" : row.full_name,
+          latitude: liveLat,
+          longitude: liveLng,
+          livesAlone: row.lives_alone === true,
+          severity: severityByResident.get(id) ?? 0,
+          categories: vulns
+            .filter(vuln => String(vuln.resident_id) === id)
+            .map(vuln => typeMap.get(String(vuln.vulnerability_type_id))?.category)
+            .filter(Boolean)
+        };
+      }),
     devices: devices.filter(row => !visible || visible.deviceIds.has(String(row.id))).map(row => ({
       id: row.id,
       villageId: row.village_id,

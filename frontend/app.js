@@ -90,9 +90,24 @@ const state = {
 const D = state.data;
 window.jagaState = state;
 
-const ownVillageId = () => state.session?.villageIds?.[0] || D.villages[0]?.id || '';
-const villageName = id => D.villages.find(v => v.id === id)?.name || '—';
-const rosterRows = () => Object.values(D.rosters).flat().map(r => ({ ...r, id: r.residentId }));
+const rosterRows = () => {
+  const fromOps = Object.values(D.rosters).flat().map(r => ({ ...r, id: r.residentId }));
+  if (fromOps.length) return fromOps;
+  const activeIncs = (D.incidents || []).filter(isActive);
+  if (!activeIncs.length) return [];
+  return activeIncs.map(inc => ({
+    id: inc.residentId || inc.id,
+    residentId: inc.residentId || inc.id,
+    fullName: inc.ownerName || 'Warga (SOS)',
+    latitude: inc.latitude || 5.54829,
+    longitude: inc.longitude || 95.323753,
+    activeIncident: inc,
+    priority: { color: 'red', level: 'DARURAT', score: 100 },
+    device: inc.deviceId ? { id: inc.deviceId, online: true } : null,
+    vulnerabilities: [],
+    contacts: []
+  }));
+};
 const sortedByPriority = rows => rows.slice().sort((a, b) =>
   (PRIO_RANK[a.priority?.color] ?? 9) - (PRIO_RANK[b.priority?.color] ?? 9) || (b.priority?.score || 0) - (a.priority?.score || 0));
 
@@ -619,20 +634,21 @@ function viewDesaTitik() {
 function viewDesaKalung() {
   const rows = D.devices.slice().sort((a, b) => (a.online ? 1 : 0) - (b.online ? 1 : 0) || (num(a.battery) ?? 100) - (num(b.battery) ?? 100));
   const assigned = rows.filter(d => d.residentId);
+  const stockCount = rows.length - assigned.length;
   const body = rows.length ? tableWrap(['Kalung', 'Warga', 'Baterai', 'Koneksi', 'Posisi GPS', 'Terakhir aktif', 'Status'], rows.map(d => `<tr>
     <td><b>${esc(d.id)}</b><small>${esc(d.model || '')} ${d.firmwareVersion ? `· fw ${esc(d.firmwareVersion)}` : ''}</small></td>
     <td>${esc(d.residentName || (d.status === 'STOCK' ? 'Stok' : '—'))}</td><td>${batteryCell(d.battery)}</td>
     <td>${d.online ? badge('Online', 'green') : badge('Offline', 'red')}</td>
     <td>${d.locationAt ? `${esc(timeAgo(d.locationAt))}<small>${d.locationAccuracyMeters ? `±${Math.round(d.locationAccuracyMeters)} m` : 'tanpa akurasi'}</small>` : '<small>Belum ada fix</small>'}</td><td>${esc(timeAgo(d.lastSeenAt))}</td>
     <td>${badge({ ASSIGNED: 'Terpasang', STOCK: 'Stok', MAINTENANCE: 'Perawatan', LOST: 'Hilang', RETIRED: 'Dipensiunkan' }[d.status] || d.status, 'gray', true)}</td></tr>`)) : empty('Belum ada kalung', '', 'device');
-  const stockNote = callout({ tone: 'blue', icon: 'device', title: 'Kalung disediakan JAGA Pusat', text: `${rows.length - assigned.length} kalung stok di desa ini. Butuh kalung tambahan, pengganti, atau ada yang rusak? Laporkan ke Pusat.`, actions: `<a class="btn primary sm" href="#/kendala">Lapor kendala</a>` });
+  const stockNote = callout({ tone: 'blue', icon: 'device', title: 'Kalung disediakan JAGA Pusat', text: `${stockCount} kalung stok di desa ini. Total ${rows.length} kalung (${assigned.length} terpasang ke warga, ${stockCount} cadangan/stok). Butuh kalung tambahan, pengganti, atau ada yang rusak? Laporkan ke Pusat.`, actions: `<a class="btn primary sm" href="#/kendala">Lapor kendala</a>` });
   return `${pageHead('Kesehatan kalung', 'Pantau baterai dan koneksi. Kalung offline tidak dapat menerima alarm.')}
     <div class="stack">${stockNote}<div class="kpis">
-      ${kpi({ icon: 'device', label: 'Terpasang', value: assigned.length, hint: `${rows.length - assigned.length} di stok` })}
+      ${kpi({ icon: 'device', label: 'Terpasang', value: assigned.length, hint: `${stockCount} di stok (total ${rows.length})` })}
       ${kpi({ icon: 'signal', label: 'Online', value: assigned.filter(d => d.online).length, hint: 'Menerima alarm', tone: 'blue' })}
       ${kpi({ icon: 'alert', label: 'Offline', value: assigned.filter(d => !d.online).length, hint: 'Perlu dicek', tone: assigned.some(d => !d.online) ? 'red' : '' })}
       ${kpi({ icon: 'battery', label: 'Baterai rendah', value: assigned.filter(d => num(d.battery) !== null && d.battery <= 20).length, hint: '20% atau kurang', tone: 'orange' })}
-    </div>${card({ title: 'Seluruh kalung', flush: true, body })}</div>`;
+    </div>${card({ title: `${rows.length} kalung di desa`, sub: `${assigned.length} terpasang ke warga · ${stockCount} cadangan di stok desa`, flush: true, body })}</div>`;
 }
 
 function incidentActions(i) {
@@ -862,6 +878,7 @@ function mountMaps() {
     state.maps.push(map);
     setTimeout(() => { if (state.maps.includes(map)) map.invalidateSize(); }, 60);
   });
+  if (typeof window.updateMapMarker === 'function') setTimeout(window.updateMapMarker, 80);
 }
 function destroyMaps() { state.maps.forEach(m => { try { m.stop(); m.remove(); } catch { /* peta sudah dilepas */ } }); state.maps = []; }
 
@@ -1566,12 +1583,12 @@ const ACTIONS = {
         window.setKalungAlarm(espStatus, true);
       }
       const body = p.target === 'ALL'
-        ? { villageId: p.villageId, targetType: 'DESA', severity: p.severity, message: p.message, waterLevelCm: p.waterLevelCm, observationNote: p.note }
+        ? { villageId: p.villageId, targetType: 'DESA', severity: p.severity, message: p.message, waterLevelCm: p.waterLevelCm, observationNote: p.note, teamId: p.teamId || undefined }
         : p.target.startsWith('GROUP:')
-          ? { villageId: p.villageId, targetType: 'KELOMPOK_RENTAN', targetReference: p.target.slice(6), severity: p.severity, message: p.message }
-          : { villageId: p.villageId, targetType: 'PERANGKAT', targetReference: p.target, severity: p.severity, message: p.message };
+          ? { villageId: p.villageId, targetType: 'KELOMPOK_RENTAN', targetReference: p.target.slice(6), severity: p.severity, message: p.message, teamId: p.teamId || undefined }
+          : { villageId: p.villageId, targetType: 'PERANGKAT', targetReference: p.target, severity: p.severity, message: p.message, teamId: p.teamId || undefined };
       const result = await JagaApi.sendAlert(body);
-      state.ui.alarm = { severity: 'SIAGA', target: 'ALL', message: '', waterLevelCm: '', note: '' };
+      state.ui.alarm = { severity: 'SIAGA', target: 'ALL', message: '', waterLevelCm: '', note: '', teamId: '' };
       closeModal();
       toast(`Alarm masuk antrean untuk ${result.devicesReached} kalung${result.operation ? ' · operasi Rescue dibuka' : ''}`);
       await loadData(true);
