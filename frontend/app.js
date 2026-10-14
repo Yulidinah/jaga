@@ -612,8 +612,8 @@ function viewDesaAlarm() {
     <button type="submit" class="btn primary block">${icon('bell')} Tinjau & aktifkan alarm</button></form>`;
   const historyBody = history.length ? `<div class="list scrollable-list alert-history-list">${history.map(h => `<div class="row-item"><span class="row-icon ${SEVERITY[h.severity]?.[1] || ''}">${icon('bell')}</span><div class="grow"><b>${esc(h.message || h.target)}</b><small>${esc(h.target)} · ${esc(timeAgo(h.createdAt))}</small></div>${severityBadge(h.severity)}<small>${h.receipts?.acknowledged ?? 0}/${h.receipts?.total ?? 0} dikonfirmasi</small></div>`).join('')}</div>` : empty('Belum ada alarm', '', 'bell');
   return `${pageHead('Alarm & operasi', 'Bunyikan alarm ke kalung warga setelah kondisi diverifikasi. Anda yang paling tahu keadaan lapangan.')}
-    <div class="grid two items-start">${card({ title: 'Aktifkan alarm', sub: 'Dikonfirmasi manusia sebelum dikirim', flush: true, body: form })}
-      <div class="stack">${D.operations.length ? D.operations.map(operationCard).join('') : ''}${card({ title: 'Riwayat Peringatan (Desa ini)', flush: true, body: historyBody })}</div></div>
+    <div class="grid two items-start alarm-grid">${card({ title: 'Aktifkan alarm', sub: 'Dikonfirmasi manusia sebelum dikirim', flush: true, extra: 'alarm-card', body: form })}
+      <div class="stack alert-history-col">${D.operations.length ? D.operations.map(operationCard).join('') : ''}${card({ title: 'Riwayat Peringatan (Desa ini)', flush: true, extra: 'alert-history-card', body: historyBody })}</div></div>
     <div class="stack" style="margin-top:20px">${card({ title: 'Laporan pasca-operasi Rescue', sub: `${D.reports.length} laporan`, flush: true, body: reportsTable() })}</div>`;
 }
 
@@ -880,7 +880,51 @@ function mountMaps() {
   });
   if (typeof window.updateMapMarker === 'function') setTimeout(window.updateMapMarker, 80);
 }
-function destroyMaps() { state.maps.forEach(m => { try { m.stop(); m.remove(); } catch { /* peta sudah dilepas */ } }); state.maps = []; }
+let alarmResizeObserver = null;
+function observeAlarmCard() {
+  if (alarmResizeObserver) {
+    try { alarmResizeObserver.disconnect(); } catch {}
+    alarmResizeObserver = null;
+  }
+  const alarmCard = $('.alarm-card');
+  const historyCard = $('.alert-history-card');
+  if (!alarmCard || !historyCard) return;
+
+  const sync = () => {
+    const h = alarmCard.offsetHeight;
+    if (h > 0) {
+      const ops = $$('.alert-history-col .op-card');
+      let opsH = 0;
+      ops.forEach(op => { opsH += op.offsetHeight + 20; });
+      const targetH = Math.max(260, h - opsH);
+      historyCard.style.height = `${targetH}px`;
+      const head = historyCard.querySelector('.card-head');
+      const headH = head ? head.offsetHeight : 54;
+      const list = historyCard.querySelector('.alert-history-list');
+      if (list) {
+        const listH = Math.max(120, targetH - headH);
+        list.style.height = `${listH}px`;
+        list.style.maxHeight = `${listH}px`;
+        list.style.overflowY = 'auto';
+      }
+    }
+  };
+
+  sync();
+  if (window.ResizeObserver) {
+    alarmResizeObserver = new ResizeObserver(() => sync());
+    alarmResizeObserver.observe(alarmCard);
+  }
+}
+
+function destroyMaps() {
+  if (alarmResizeObserver) {
+    try { alarmResizeObserver.disconnect(); } catch {}
+    alarmResizeObserver = null;
+  }
+  state.maps.forEach(m => { try { m.stop(); m.remove(); } catch { /* peta sudah dilepas */ } });
+  state.maps = [];
+}
 
 /* --------------------------------------------------------- Rute tampilan */
 const VIEWS = {
@@ -1849,6 +1893,7 @@ function render() {
   try { app.innerHTML = VIEWS[state.role][currentRoute()](); }
   catch (error) { console.error(error); app.innerHTML = `<div class="card pad">${empty('Tampilan gagal dimuat', error.message, 'alert')}</div>`; }
   mountMaps();
+  observeAlarmCard();
   renderModal();
 }
 ACTIONS.retry = () => loadData();
