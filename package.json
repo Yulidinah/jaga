@@ -12,7 +12,9 @@
     "start": "node --env-file-if-exists=.env backend/dist/server.js",
     "dev": "npm run build && node --env-file=.env backend/dist/server.js",
     "check": "tsc -p backend/tsconfig.json --noEmit",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "android:assemble": "cd android && gradlew.bat :app:assembleDebug",
+    "android:lint": "cd android && gradlew.bat :app:lintDebug"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

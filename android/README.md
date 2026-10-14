@@ -1,11 +1,20 @@
 # JAGA Android
 
-Aplikasi native Kotlin/Jetpack Compose untuk role JAGA Desa dan JAGA Rescue. Pengguna masuk dengan akun
-organisasi; peran dan wilayah ditentukan server dari akun tersebut.
+Aplikasi Android menjalankan frontend JAGA yang sama dengan web di dalam WebView terlindungi. Seluruh menu, role, pembatasan akses, dan alur kerja JAGA Pusat/Desa/Rescue selalu identik dengan versi web; tidak ada logika bisnis web yang tertinggal di mobile. Kode native tetap menyediakan fondasi untuk integrasi perangkat di masa depan.
 
-Saat dijalankan pada Android Emulator, aplikasi mengakses backend lokal melalui
-`http://10.0.2.2:3000`. Untuk perangkat fisik, ubah `baseUrl` di `JagaApi.kt`
-(`API_BASE` di `app/build.gradle.kts`) menjadi alamat backend. HTTP biasa hanya diizinkan ke 10.0.2.2/localhost; gunakan HTTPS di luar pengembangan.
+- `data/model`: model API murni.
+- `data/remote`: HTTP client dan parsing respons backend.
+- `data/local`: penyimpanan sesi terenkripsi.
+- `data/repository`: batas antara network dan UI.
+- `ui`: state holder, tema, dan composable layar.
 
-Build memerlukan Android Studio, Android SDK 35, JDK 17, dan Gradle wrapper yang
-dapat dibuat oleh Android Studio. Belum ada peta, pelacakan jejak, dan notifikasi push (FCM).
+## Menjalankan
+
+Gunakan JDK 17 dan Android SDK API 34. Debug membuka `http://10.0.2.2:3000`, sementara release membuka endpoint HTTPS Railway dari `BuildConfig.WEB_BASE`. Cleartext hanya tersedia untuk host emulator/lokal dalam konfigurasi jaringan.
+
+```powershell
+cd android
+.\gradlew.bat :app:assembleDebug
+```
+
+Atau dari akar repository: `npm run android:assemble`. Jangan menaruh token, endpoint privat, atau kunci perangkat di source code.

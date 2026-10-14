@@ -1,13 +1,29 @@
 package id.jaga.app
 
 import android.content.Context
-import android.content.SharedPreferences
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import id.jaga.app.data.local.SessionStore
+import id.jaga.app.data.remote.JagaApi
+import id.jaga.app.data.remote.Incident
+import id.jaga.app.data.remote.IotDeviceStatus
+import id.jaga.app.data.remote.RescueTeam
+import id.jaga.app.data.remote.Resident
+import id.jaga.app.data.remote.Session
+import id.jaga.app.data.remote.TechnicalTicket
+import id.jaga.app.data.remote.PusatAccount
+import id.jaga.app.data.remote.PusatAudit
+import id.jaga.app.data.remote.PusatDevice
+import id.jaga.app.data.remote.PusatOverview
+import id.jaga.app.data.remote.PusatPlatform
+import id.jaga.app.data.remote.PusatVillage
+import id.jaga.app.data.repository.JagaRepository
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -69,22 +85,29 @@ object Strings {
 
 class JagaViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        val prefs = context.getSharedPreferences("jaga_session", Context.MODE_PRIVATE)
+        // Remove the legacy plaintext store on the first launch after the security migration.
+        context.getSharedPreferences("jaga_session", Context.MODE_PRIVATE).edit().clear().apply()
         @Suppress("UNCHECKED_CAST")
-        return JagaViewModel(prefs) as T
+        return JagaViewModel(SessionStore(context.applicationContext)) as T
     }
 }
 
-class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
-    private val api = JagaApi(BuildConfig.API_BASE)
+class JagaViewModel(private val prefs: SessionStore) : ViewModel() {
+    private val repository = JagaRepository(JagaApi(BuildConfig.API_BASE))
     var session by mutableStateOf<Session?>(null)
     var incidents by mutableStateOf<List<Incident>>(emptyList())
     var residents by mutableStateOf<List<Resident>>(emptyList())
     var tickets by mutableStateOf<List<TechnicalTicket>>(emptyList())
     var teams by mutableStateOf<List<RescueTeam>>(emptyList())
     var iotStatus by mutableStateOf<IotDeviceStatus?>(null)
+    var pusatOverview by mutableStateOf<PusatOverview?>(null)
+    var pusatVillages by mutableStateOf<List<PusatVillage>>(emptyList())
+    var pusatDevices by mutableStateOf<List<PusatDevice>>(emptyList())
+    var pusatAccounts by mutableStateOf<List<PusatAccount>>(emptyList())
+    var pusatPlatform by mutableStateOf<PusatPlatform?>(null)
+    var pusatAudit by mutableStateOf<List<PusatAudit>>(emptyList())
     var currentTab by mutableStateOf("UTAMA")
-    var language by mutableStateOf(AppLanguage.valueOf(prefs.getString("lang", "ID") ?: "ID"))
+    var language by mutableStateOf(AppLanguage.ID)
     var message by mutableStateOf("Memeriksa sesi...")
     var busy by mutableStateOf(false)
     var selectedIncidentForDeployment by mutableStateOf<Incident?>(null)
@@ -93,14 +116,16 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
     val role: String get() = session?.role ?: ""
 
     init {
-        val token = prefs.getString("token", null)
-        val name = prefs.getString("name", null)
-        val role = prefs.getString("role", null)
-        val villageId = prefs.getString("villageId", null)
+        val stored = prefs.read()
+        val token = stored?.token
+        val name = stored?.displayName
+        val role = stored?.role
+        val villageId = stored?.villageId
 
         if (token != null && name != null && role != null) {
-            api.token = token
+            repository.token = token
             session = Session(token, name, role, villageId)
+            if (role == "PUSAT") currentTab = "RINGKASAN"
             message = "Sesi aktif: $name ($role)"
             startPolling()
         } else {
@@ -110,21 +135,16 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
 
     fun toggleLanguage() {
         language = if (language == AppLanguage.ID) AppLanguage.EN else AppLanguage.ID
-        prefs.edit().putString("lang", language.name).apply()
     }
 
     fun login(email: String, password: String) = viewModelScope.launch {
         busy = true
-        runCatching { api.login(email.trim(), password) }
+        runCatching { repository.login(email.trim(), password) }
             .onSuccess {
                 session = it
-                api.token = it.token
-                prefs.edit()
-                    .putString("token", it.token)
-                    .putString("name", it.displayName)
-                    .putString("role", it.role)
-                    .putString("villageId", it.villageId)
-                    .apply()
+                repository.token = it.token
+                currentTab = if (it.role == "PUSAT") "RINGKASAN" else "UTAMA"
+                prefs.save(it.token, it.displayName, it.role, it.villageId)
                 message = "Berhasil masuk sebagai ${it.displayName} (${it.role})"
                 startPolling()
             }
@@ -134,9 +154,9 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
 
     fun logout() {
         poller?.cancel()
-        api.token = null
+        repository.token = null
         session = null
-        prefs.edit().clear().apply()
+        prefs.clear()
         incidents = emptyList()
         residents = emptyList()
         tickets = emptyList()
@@ -151,15 +171,16 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
             var wait = 5_000L
             while (true) {
                 val ok = runCatching {
-                    incidents = api.incidents()
+                    incidents = repository.incidents()
                     if (role == "DESA" || role == "PUSAT") {
-                        residents = api.residents()
-                        teams = api.teams()
+                        residents = repository.residents()
+                        teams = repository.teams()
                     }
                     if (role == "PUSAT") {
-                        tickets = api.tickets()
+                        tickets = repository.tickets()
+                        loadPusatData()
                     }
-                    iotStatus = api.iotStatus()
+                    iotStatus = repository.iotStatus()
                 }.isSuccess
 
                 message = if (ok) {
@@ -181,13 +202,13 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
     fun refresh() = viewModelScope.launch {
         busy = true
         runCatching {
-            incidents = api.incidents()
+            incidents = repository.incidents()
             if (role == "DESA" || role == "PUSAT") {
-                residents = api.residents()
-                teams = api.teams()
+                residents = repository.residents()
+                teams = repository.teams()
             }
-            if (role == "PUSAT") tickets = api.tickets()
-            iotStatus = api.iotStatus()
+            if (role == "PUSAT") { tickets = repository.tickets(); loadPusatData() }
+            iotStatus = repository.iotStatus()
             message = if (language == AppLanguage.ID) "Data berhasil diperbarui." else "Data refreshed successfully."
         }.onFailure {
             message = it.message ?: "Gagal memperbarui data"
@@ -195,12 +216,40 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
         busy = false
     }
 
+    /** Semua panel Pusat memakai endpoint yang sama dengan dashboard web. */
+    private suspend fun loadPusatData() {
+        val snapshot = repository.pusatSnapshot()
+        pusatOverview = snapshot.overview
+        pusatVillages = snapshot.villages
+        pusatDevices = snapshot.devices
+        pusatAccounts = snapshot.accounts
+        pusatPlatform = snapshot.platform
+        pusatAudit = snapshot.audit
+    }
+
+    fun resolveTicket(ticketId: String, note: String) = viewModelScope.launch {
+        if (note.isBlank()) { message = "Catatan penanganan wajib diisi"; return@launch }
+        busy = true
+        runCatching { repository.resolveTicket(ticketId, note); tickets = repository.tickets() }
+            .onSuccess { message = "Kendala ditandai selesai" }
+            .onFailure { message = it.message ?: "Gagal memperbarui kendala" }
+        busy = false
+    }
+
+    fun savePusatSettings(settings: PusatPlatform) = viewModelScope.launch {
+        busy = true
+        runCatching { pusatPlatform = repository.savePlatform(settings) }
+            .onSuccess { message = "Pengaturan platform disimpan" }
+            .onFailure { message = it.message ?: "Gagal menyimpan pengaturan" }
+        busy = false
+    }
+
     fun triggerIotAlarm(status: String) = viewModelScope.launch {
         busy = true
-        runCatching { api.setIotAlarm(status) }
+        runCatching { repository.setIotAlarm(status) }
             .onSuccess {
                 message = if (language == AppLanguage.ID) "Status alarm kalung diubah ke $status" else "Necklace alarm set to $status"
-                runCatching { iotStatus = api.iotStatus() }
+                runCatching { iotStatus = repository.iotStatus() }
             }
             .onFailure { message = it.message ?: "Gagal mengirim ke kalung" }
         busy = false
@@ -218,7 +267,7 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
             "SIAGA" -> "Siaga: Air mulai naik, persiapkan dokumen dan evakuasi mandiri."
             else -> "Kondisi kembali normal dan terkendali."
         }
-        runCatching { api.sendVillageAlert(villageId, severity, text) }
+        runCatching { repository.sendVillageAlert(villageId, severity, text) }
             .onSuccess {
                 message = if (language == AppLanguage.ID) "Sinyal $severity disiarkan ke $it kalung warga" else "Signal $severity sent to $it necklaces"
             }
@@ -228,7 +277,7 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
 
     fun assignRescueTeam(incidentId: String, teamId: String) = viewModelScope.launch {
         busy = true
-        runCatching { api.assignTeam(incidentId, teamId) }
+        runCatching { repository.assignTeam(incidentId, teamId) }
             .onSuccess {
                 selectedIncidentForDeployment = null
                 message = if (language == AppLanguage.ID) "Tim Rescue berhasil dikerahkan ke lokasi!" else "Rescue team deployed to location!"
@@ -260,7 +309,7 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
     fun advanceIncident(incident: Incident) = viewModelScope.launch {
         val next = nextStatus(incident) ?: return@launch
         busy = true
-        runCatching { api.updateIncident(incident.id, next) }
+        runCatching { repository.updateIncident(incident.id, next) }
             .onSuccess { refresh() }
             .onFailure { message = it.message ?: "Gagal memperbarui insiden" }
         busy = false
@@ -270,6 +319,11 @@ class JagaViewModel(private val prefs: SharedPreferences) : ViewModel() {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Compatibility redirect for users who still have the old launcher shortcut cached.
+        // Every entry path must use the web client, where the server resolves the real role.
+        startActivity(Intent(this, WebAppActivity::class.java))
+        finish()
+        return
         setContent {
             MaterialTheme(
                 colorScheme = lightColorScheme(
@@ -419,7 +473,13 @@ private fun HomeScreen(vm: JagaViewModel) {
                     // Tab navigasi native untuk Pusat dan Desa
                     if (vm.role == "PUSAT" || vm.role == "DESA") {
                         Spacer(Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (vm.role == "PUSAT") {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(listOf("RINGKASAN", "DESA", "WARGA", "KALUNG", "KENDALA", "AKUN", "PLATFORM", "AUDIT")) { tab ->
+                                    FilterChip(selected = vm.currentTab == tab, onClick = { vm.currentTab = tab }, label = { Text(tab.lowercase().replaceFirstChar { it.uppercase() }) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFFD5F27C), selectedLabelColor = Color(0xFF153D28)))
+                                }
+                            }
+                        } else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilterChip(
                                 selected = vm.currentTab == "UTAMA",
                                 onClick = { vm.currentTab = "UTAMA" },
@@ -438,17 +498,6 @@ private fun HomeScreen(vm: JagaViewModel) {
                                     selectedLabelColor = Color(0xFF153D28)
                                 )
                             )
-                            if (vm.role == "PUSAT") {
-                                FilterChip(
-                                    selected = vm.currentTab == "KENDALA",
-                                    onClick = { vm.currentTab = "KENDALA" },
-                                    label = { Text(Strings.tabTickets(vm.language, vm.tickets.size)) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = Color(0xFFD5F27C),
-                                        selectedLabelColor = Color(0xFF153D28)
-                                    )
-                                )
-                            }
                         }
                     }
                 }
@@ -510,8 +559,11 @@ private fun HomeScreen(vm: JagaViewModel) {
                 }
             }
 
+            if (vm.role == "PUSAT" && vm.currentTab != "WARGA") {
+                item { PusatPanel(vm) }
+            }
             // --- TAB KENDALA TEKNIS (KHUSUS PUSAT) ---
-            if (vm.currentTab == "KENDALA" && vm.role == "PUSAT") {
+            else if (vm.currentTab == "KENDALA" && vm.role == "PUSAT") {
                 items(vm.tickets, key = { it.id }) { ticket ->
                     Card(
                         colors = CardDefaults.cardColors(containerColor = SurfaceColor),
@@ -659,6 +711,80 @@ private fun HomeScreen(vm: JagaViewModel) {
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PusatPanel(vm: JagaViewModel) {
+    val overview = vm.pusatOverview
+    val platform = vm.pusatPlatform
+    var ticketToResolve by remember { mutableStateOf<TechnicalTicket?>(null) }
+    var resolution by remember { mutableStateOf("") }
+    if (ticketToResolve != null) {
+        AlertDialog(
+            onDismissRequest = { ticketToResolve = null },
+            title = { Text("Selesaikan kendala") },
+            text = { OutlinedTextField(value = resolution, onValueChange = { resolution = it }, label = { Text("Catatan penanganan") }, modifier = Modifier.fillMaxWidth()) },
+            confirmButton = { Button(onClick = { vm.resolveTicket(ticketToResolve!!.id, resolution); ticketToResolve = null; resolution = "" }) { Text("Selesaikan") } },
+            dismissButton = { TextButton(onClick = { ticketToResolve = null }) { Text("Batal") } }
+        )
+    }
+    Card(colors = CardDefaults.cardColors(containerColor = SurfaceColor), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            when (vm.currentTab) {
+                "RINGKASAN" -> {
+                    Text("Ringkasan nasional", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = JagaGreen)
+                    Text(overview?.scope ?: "Memuat ringkasan…", color = TextMuted)
+                    val counters = overview?.counters.orEmpty()
+                    listOf("residents" to "Warga", "villages" to "Desa", "activeIncidents" to "Insiden aktif", "devicesOnline" to "Kalung online", "ticketsOpen" to "Kendala terbuka").forEach { (key, label) ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(label); Text("${counters[key] ?: 0}", fontWeight = FontWeight.Bold, color = JagaAccent) }
+                    }
+                }
+                "DESA" -> {
+                    Text("Monitoring desa", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = JagaGreen)
+                    vm.pusatVillages.forEach { village ->
+                        HorizontalDivider(); Text(village.name, fontWeight = FontWeight.Bold); Text("${village.province} · ${village.status} · ${village.online}/${village.devices} kalung online", color = TextMuted, fontSize = 12.sp)
+                    }
+                }
+                "KALUNG" -> {
+                    Text("Inventaris kalung", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = JagaGreen)
+                    vm.pusatDevices.forEach { device ->
+                        HorizontalDivider(); Text(device.id, fontWeight = FontWeight.Bold); Text("${device.status} · ${device.battery ?: "—"}% · ${if (device.online) "online" else "offline"} · ${device.firmware ?: "firmware belum dicatat"}", color = TextMuted, fontSize = 12.sp)
+                    }
+                }
+                "AKUN" -> {
+                    Text("Akun & akses", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = JagaGreen)
+                    vm.pusatAccounts.forEach { account ->
+                        HorizontalDivider(); Text(account.displayName, fontWeight = FontWeight.Bold); Text("${account.role} · ${account.email} · ${if (account.active) "aktif" else "nonaktif"}", color = TextMuted, fontSize = 12.sp)
+                    }
+                }
+                "PLATFORM" -> if (platform == null) Text("Memuat pengaturan…") else {
+                    Text("Platform & data", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = JagaGreen)
+                    Text("Aplikasi v${platform.appVersion}", color = TextMuted)
+                    OutlinedTextField(value = platform.offlineMinutes.toString(), onValueChange = { value -> value.toIntOrNull()?.let { vm.pusatPlatform = platform.copy(offlineMinutes = it) } }, label = { Text("Batas offline (menit)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = platform.alertExpiryMinutes.toString(), onValueChange = { value -> value.toIntOrNull()?.let { vm.pusatPlatform = platform.copy(alertExpiryMinutes = it) } }, label = { Text("Masa alarm (menit)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    listOf("Catatan medis" to platform.rescueMedical, "Kontak darurat" to platform.rescueContacts, "GPS langsung" to platform.rescueGps).forEach { (label, checked) -> Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = checked, onCheckedChange = { value -> vm.pusatPlatform = when (label) { "Catatan medis" -> platform.copy(rescueMedical = value); "Kontak darurat" -> platform.copy(rescueContacts = value); else -> platform.copy(rescueGps = value) } }); Text("Rescue dapat melihat $label saat operasi") } }
+                    Button(onClick = { vm.savePusatSettings(vm.pusatPlatform ?: platform) }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text("Simpan pengaturan") }
+                }
+                "AUDIT" -> {
+                    Text("Log audit", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = JagaGreen)
+                    vm.pusatAudit.forEach { entry -> HorizontalDivider(); Text(entry.action, fontWeight = FontWeight.Bold); Text(entry.summary, color = TextMuted, fontSize = 12.sp) }
+                }
+                "KENDALA" -> Text("Kendala teknis", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = JagaGreen)
+            }
+        }
+    }
+    if (vm.currentTab == "KENDALA") vm.tickets.forEach { ticket -> TicketCard(ticket, onResolve = { ticketToResolve = ticket }) }
+}
+
+@Composable
+private fun TicketCard(ticket: TechnicalTicket, onResolve: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = SurfaceColor), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(ticket.title, fontWeight = FontWeight.Bold, color = JagaGreen)
+            Text("${ticket.villageName ?: "Pusat"} · ${ticket.category} · ${ticket.status}", color = TextMuted, fontSize = 12.sp)
+            if (ticket.status != "RESOLVED") OutlinedButton(onClick = onResolve, modifier = Modifier.fillMaxWidth()) { Text("Tandai selesai") }
         }
     }
 }

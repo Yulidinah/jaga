@@ -1,6 +1,7 @@
 node_modules/
 backend/dist/
 android/.gradle/
+android/.gradle-user-home/
 android/local.properties
 android/**/build/
 .idea/

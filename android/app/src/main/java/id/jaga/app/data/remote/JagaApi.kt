@@ -1,4 +1,4 @@
-package id.jaga.app
+package id.jaga.app.data.remote
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -6,6 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import id.jaga.app.BuildConfig
 
 data class Incident(
     val id: String,
@@ -62,6 +63,14 @@ data class Session(
     val role: String,
     val villageId: String?
 )
+
+data class PusatOverview(val counters: Map<String, Int>, val scope: String)
+data class PusatVillage(val id: String, val name: String, val province: String, val status: String, val lastSyncAt: String?, val devices: Int, val online: Int)
+data class PusatDevice(val id: String, val villageId: String?, val ownerName: String?, val status: String, val battery: Int?, val online: Boolean, val firmware: String?)
+data class PusatAccount(val id: String, val displayName: String, val email: String, val role: String, val active: Boolean)
+data class PusatPlatform(val offlineMinutes: Int, val alertExpiryMinutes: Int, val rescueMedical: Boolean, val rescueContacts: Boolean, val rescueGps: Boolean, val appVersion: String)
+data class PusatAudit(val action: String, val summary: String, val createdAt: String)
+data class PusatSnapshot(val overview: PusatOverview, val villages: List<PusatVillage>, val devices: List<PusatDevice>, val accounts: List<PusatAccount>, val platform: PusatPlatform, val audit: List<PusatAudit>)
 
 /** Klien HTTP Native yang terhubung langsung ke backend JAGA. */
 class JagaApi(var baseUrl: String = BuildConfig.API_BASE) {
@@ -222,6 +231,49 @@ class JagaApi(var baseUrl: String = BuildConfig.API_BASE) {
         }
         read(connection)
         Unit
+    }
+
+    suspend fun pusatSnapshot(): PusatSnapshot = withContext(Dispatchers.IO) {
+        val overview = JSONObject(read(open("/dashboard", "GET"))).getJSONObject("data")
+        val countersJson = overview.optJSONObject("counters") ?: JSONObject()
+        val counters = countersJson.keys().asSequence().associateWith { countersJson.optInt(it, 0) }
+        val villages = arrayData("/village-status").map { item ->
+            val devices = item.optJSONObject("devices") ?: JSONObject()
+            PusatVillage(item.optString("villageId", item.optString("id")), item.optString("villageName", item.optString("name")), item.optString("province", "-"), item.optString("status", "UNKNOWN"), item.optString("lastSyncAt", null), devices.optInt("total"), devices.optInt("online"))
+        }
+        val devices = arrayData("/devices?limit=500").map { item ->
+            PusatDevice(item.optString("id"), item.optString("villageId", null), item.optString("ownerName", null), item.optString("status", "-"), if (item.has("battery") && !item.isNull("battery")) item.optInt("battery") else null, item.optBoolean("online"), item.optString("firmwareVersion", null))
+        }
+        val accounts = arrayData("/accounts").map { item ->
+            PusatAccount(item.optString("id"), item.optString("displayName", "-"), item.optString("email", "-"), item.optString("role", "-"), item.optBoolean("active", true))
+        }
+        val platformJson = JSONObject(read(open("/platform", "GET"))).getJSONObject("data")
+        val settings = platformJson.optJSONObject("settings") ?: JSONObject()
+        val platform = PusatPlatform(settings.optInt("device_offline_minutes", 15), settings.optInt("alert_expiry_minutes", 120), settings.optBoolean("rescue_view_medical", true), settings.optBoolean("rescue_view_contacts", true), settings.optBoolean("rescue_view_gps", true), platformJson.optJSONObject("version")?.optString("app", "-") ?: "-")
+        val audit = arrayData("/audit/recent").map { item -> PusatAudit(item.optString("action", "-"), item.optString("summary", "-"), item.optString("createdAt", "")) }
+        PusatSnapshot(PusatOverview(counters, overview.optString("scope", "Seluruh wilayah")), villages, devices, accounts, platform, audit)
+    }
+
+    suspend fun resolveTicket(ticketId: String, note: String) = send("PATCH", "/tickets/$ticketId", JSONObject().put("status", "RESOLVED").put("resolutionNote", note))
+
+    suspend fun savePlatform(platform: PusatPlatform): PusatPlatform = withContext(Dispatchers.IO) {
+        val settings = JSONObject().put("device_offline_minutes", platform.offlineMinutes).put("alert_expiry_minutes", platform.alertExpiryMinutes)
+            .put("rescue_view_medical", platform.rescueMedical).put("rescue_view_contacts", platform.rescueContacts).put("rescue_view_gps", platform.rescueGps)
+        val result = JSONObject(send("PUT", "/platform", JSONObject().put("settings", settings))).getJSONObject("data")
+        val saved = result.getJSONObject("settings")
+        platform.copy(offlineMinutes = saved.optInt("device_offline_minutes"), alertExpiryMinutes = saved.optInt("alert_expiry_minutes"), rescueMedical = saved.optBoolean("rescue_view_medical"), rescueContacts = saved.optBoolean("rescue_view_contacts"), rescueGps = saved.optBoolean("rescue_view_gps"))
+    }
+
+    private fun arrayData(path: String): List<JSONObject> {
+        val data = JSONObject(read(open(path, "GET"))).get("data")
+        val array = if (data is JSONArray) data else (data as JSONObject).optJSONArray("data") ?: JSONArray()
+        return (0 until array.length()).map { array.getJSONObject(it) }
+    }
+
+    private fun send(method: String, path: String, body: JSONObject): String {
+        val connection = open(path, method)
+        connection.outputStream.bufferedWriter().use { it.write(body.toString()) }
+        return read(connection)
     }
 
     private fun open(path: String, method: String): HttpURLConnection =

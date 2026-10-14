@@ -1,0 +1,4 @@
+#!/bin/sh
+APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -z "$GRADLE_USER_HOME" ]; then export GRADLE_USER_HOME="$APP_HOME/.gradle-user-home"; fi
+exec java -classpath "$APP_HOME/gradle/wrapper/gradle-wrapper.jar:$APP_HOME/gradle/wrapper/gradle-wrapper-shared.jar:$APP_HOME/gradle/wrapper/gradle-cli.jar:$APP_HOME/gradle/wrapper/gradle-files.jar" org.gradle.wrapper.GradleWrapperMain "$@"
