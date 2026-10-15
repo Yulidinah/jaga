@@ -90,6 +90,9 @@ const state = {
 const D = state.data;
 window.jagaState = state;
 
+const ownVillageId = () => state.session?.villageIds?.[0] || D.villages[0]?.id || '';
+const villageName = id => D.villages.find(v => v.id === id)?.name || '—';
+
 const rosterRows = () => {
   const fromOps = Object.values(D.rosters).flat().map(r => ({ ...r, id: r.residentId }));
   if (fromOps.length) return fromOps;
@@ -1860,6 +1863,7 @@ document.addEventListener('input', event => {
     setPath(el.dataset.bind, el.value);
     if (el.dataset.keepFocus) { const pos = el.selectionStart; render(); const again = $(`[data-bind="${el.dataset.bind}"]`); if (again) { again.focus(); again.setSelectionRange(pos, pos); } }
   }
+  if (el.id === 'confirmCheck') { const send = $('#confirmSend'); if (send) send.disabled = !el.checked; }
 });
 document.addEventListener('change', event => {
   const el = event.target;
