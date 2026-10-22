@@ -1,4 +1,4 @@
-# JAGA (Jaringan Aksi Tanggap Darurat Inklusif)
+# JAGA (Joint Alert, Guidance & Assistance)
 
 JAGA adalah sebuah platform sistem peringatan dan respons bencana inklusif yang dirancang untuk melindungi kelompok rentan (seperti penyandang disabilitas, lansia, dan ibu hamil) dalam situasi darurat. Platform ini mengintegrasikan perangkat IoT (*wearable SOS*) dengan sistem kendali pusat, desa, dan tim *rescue*.
 
